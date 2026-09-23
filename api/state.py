@@ -10,11 +10,24 @@ from pathlib import Path
 
 from core.baseline import build_baseline
 from core.metrics import compute, delta, moved_meetings
-from core.models import Assignment, University
+from core.models import DAYS, DAYS_AR, FIRST_HOUR, Assignment, University, slot_day, slot_period
 from core.solver import CHANGE_ROUNDS, DEFAULT_ROUNDS, PROFILES, solve
 from data.generator import generate
 
 CACHE = Path(".cache")
+
+
+def _where(slot: int | None, room: str | None) -> dict | None:
+    if slot is None or room is None:
+        return None
+    return {
+        "day": DAYS[slot_day(slot)],
+        "day_ar": DAYS_AR[slot_day(slot)],
+        "day_index": slot_day(slot),
+        "period": slot_period(slot),
+        "hour": f"{FIRST_HOUR + slot_period(slot):02d}:00",
+        "room": room,
+    }
 
 
 @dataclass
@@ -27,6 +40,7 @@ class Version:
     at: str
     moved: list[str] = field(default_factory=list)
     deltas: dict = field(default_factory=dict)
+    moves: list[dict] = field(default_factory=list)
 
 
 class Session:
@@ -171,6 +185,7 @@ class Session:
             moved=moved_meetings(before, assignment) if before else [],
             deltas=delta(self.versions[-1].metrics, metrics) if self.versions else {},
         )
+        v.moves = self.move_list(before, assignment)
         self.versions.append(v)
         return v
 
@@ -217,7 +232,27 @@ class Session:
         # what undoing actually put back, so the grid can show it
         payload["moved"] = moved_meetings(dropped.assignment, restored.assignment)
         payload["moved_count"] = len(payload["moved"])
+        payload["moves"] = self.move_list(dropped.assignment, restored.assignment)
         return {"ok": True, "version": payload}
+
+    def move_list(self, before: Assignment | None, after: Assignment) -> list[dict]:
+        """Each move in words: where it was, where it went."""
+        if before is None:
+            return []
+        out = []
+        for mid in moved_meetings(before, after):
+            sec = self.u.section_by_id[self.u.meeting_by_id[mid].section_id]
+            course = self.u.course_by_id[sec.course_id]
+            fs, ts = before.slot.get(mid), after.slot[mid]
+            out.append({
+                "meeting_id": mid,
+                "section_id": sec.id,
+                "course": course.name,
+                "course_ar": course.name_ar,
+                "from": _where(fs, before.room.get(mid)),
+                "to": _where(ts, after.room[mid]),
+            })
+        return out
 
     def version_payload(self, v: Version) -> dict:
         return {
@@ -229,6 +264,7 @@ class Session:
             "deltas": v.deltas,
             "moved": v.moved,
             "moved_count": len(v.moved),
+            "moves": v.moves,
         }
 
     def change_log(self) -> list[dict]:

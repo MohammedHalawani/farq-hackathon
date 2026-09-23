@@ -694,6 +694,42 @@ td.num, th.num { text-align: end; font-family: var(--font-mono); font-variant-nu
 
 .tstep--fail .tstep__detail { color: var(--color-bad); }
 
+/* --- change highlighting ----------------------------------------------- */
+.ev--ghost {
+  border: 1px dashed var(--color-rule-2);
+  border-inline-start: 2px dashed var(--color-ink-3);
+  background: transparent;
+  opacity: 0.55;
+}
+
+.ev--ghost .ev__title { color: var(--color-ink-3); font-weight: 400; text-decoration: line-through; }
+
+.ev--landed {
+  border-inline-start-color: var(--color-accent);
+  background: var(--color-accent-soft);
+  box-shadow: inset 0 0 0 1px var(--color-accent);
+}
+
+.moves { padding: var(--space-3xs) var(--space-sm) var(--space-xs); margin: 0; list-style: none; }
+
+.move {
+  display: grid;
+  gap: 2px;
+  padding: var(--space-2xs) 0;
+  border-bottom: 1px solid var(--color-rule);
+}
+
+.move:last-child { border-bottom: none; }
+.move__what { color: var(--color-ink); font-size: 0.78rem; font-weight: 500; }
+
+.move__path {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--color-ink-3);
+}
+
+.move__path b { color: var(--color-accent); font-weight: 500; }
+
 /* --- chips ------------------------------------------------------------ */
 .chip {
   display: inline-flex;

@@ -92,7 +92,7 @@ const pctLabel = (v) => (v < 10 ? Number(v).toFixed(1) : String(Math.round(v))) 
 const state = {
   lang: "en", meta: null, entities: null, comparison: null,
   entType: "student", entId: null, source: "baseline", pending: null, busy: false,
-  lastApplied: null, movedMeetings: new Set(), trace: [],
+  lastApplied: null, movedMeetings: new Set(), trace: [], moves: [],
 };
 
 const t = (k) => I18N[state.lang][k] || k;
@@ -433,17 +433,38 @@ function buildGrid(host, data, opts = {}) {
     (cells[`${c.day}:${c.period}`] ||= []).push(c);
   });
 
+  // where each moved meeting used to sit, so the grid can show the jump
+  const ghosts = {};
+  if (opts.ghosts !== false) {
+    const shown = new Set((data?.cells ?? []).map((c) => c.meeting_id));
+    for (const m of state.moves || []) {
+      if (!shown.has(m.meeting_id) || !m.from) continue;
+      (ghosts[`${m.from.day_index}:${m.from.period}`] ||= []).push(m);
+    }
+  }
+
   state.meta.periods.forEach((label, p) => {
     host.appendChild(el("div", "gt", label));
     for (let d = 0; d < days.length; d++) {
       const box = el("div", "cell");
       const list = cells[`${d}:${p}`] || [];
-      if (!list.length) box.classList.add("cell--empty");
+      const gh = ghosts[`${d}:${p}`] || [];
+      if (!list.length && !gh.length) box.classList.add("cell--empty");
+      for (const g of gh) {
+        const ghost = el("div", "ev ev--ghost");
+        const t = el("div", "ev__title", state.lang === "ar" ? g.course_ar : g.course);
+        t.dir = "auto";
+        ghost.appendChild(t);
+        ghost.appendChild(el("div", "ev__meta", `${g.from.room} → ${g.to.hour}`));
+        box.appendChild(ghost);
+      }
       for (const c of list) {
         const moved = state.movedMeetings.has(c.meeting_id);
+        const landed = (state.moves || []).some((m) => m.meeting_id === c.meeting_id);
         const ev = el("div", "ev"
           + (c.conflict ? " ev--conflict" : c.accessibility_issue ? " ev--access" : "")
-          + (moved ? " ev--moved" : ""));
+          + (moved ? " ev--moved" : "")
+          + (landed ? " ev--landed" : ""));
         const title = el("div", "ev__title", state.lang === "ar" ? c.course_ar : c.course);
         title.dir = "auto";
         ev.appendChild(title);
@@ -590,6 +611,10 @@ async function sendMessage(text) {
     });
     pending.querySelector(".msg__body").textContent = out.reply;
     state.pending = out.card || null;
+    if (out.card && out.card.kind === "what_if" && out.card.moves) {
+      state.moves = out.card.moves;
+      loadGrid();
+    }
     state.trace = out.trace || [];
     renderTrace(state.trace);
     renderSide();
@@ -691,6 +716,7 @@ function renderSide() {
       : "No change is waiting for confirmation."));
     host.appendChild(card);
     if (state.lastApplied) host.appendChild(appliedCard(state.lastApplied));
+    if ((state.moves || []).length) host.appendChild(movesCard(state.moves));
     return;
   }
 
@@ -730,6 +756,37 @@ function renderSide() {
   card.appendChild(actions);
   host.appendChild(card);
   if (state.lastApplied) host.appendChild(appliedCard(state.lastApplied));
+  if ((state.moves || []).length) host.appendChild(movesCard(state.moves));
+}
+
+function movesCard(moves) {
+  const card = el("div", "card");
+  const head = el("div", "card__head");
+  head.appendChild(el("h3", null, state.lang === "ar" ? "ما الذي تحرّك" : "What moved"));
+  head.appendChild(el("span", "chip chip--signal", String(moves.length)));
+  card.appendChild(head);
+  const list = el("ul", "moves");
+  for (const m of moves.slice(0, 12)) {
+    const li = el("li", "move");
+    const what = el("div", "move__what",
+      `${state.lang === "ar" ? m.course_ar : m.course} · ${m.section_id}`);
+    what.dir = "auto";
+    li.appendChild(what);
+    const path = el("div", "move__path");
+    const from = state.lang === "ar" ? m.from.day_ar : m.from.day;
+    const to = state.lang === "ar" ? m.to.day_ar : m.to.day;
+    path.append(
+      `${from} ${m.from.hour} · ${m.from.room}  →  `,
+      Object.assign(document.createElement("b"), { textContent: `${to} ${m.to.hour} · ${m.to.room}` })
+    );
+    li.appendChild(path);
+    list.appendChild(li);
+  }
+  if (moves.length > 12) {
+    list.appendChild(el("li", "move", `+${moves.length - 12} more`));
+  }
+  card.appendChild(list);
+  return card;
 }
 
 function appliedCard(v) {
@@ -769,6 +826,7 @@ async function applyPending(btn) {
       state.pending = null;
     } else {
       state.lastApplied = out.version;
+      state.moves = out.version.moves || [];
       state.pending = null;
       addMessage("agent", (state.lang === "ar"
         ? `تم التطبيق. نُقلت ${out.version.moved_count} محاضرة.`
@@ -791,6 +849,7 @@ async function doUndo(btn) {
     const out = await api("/api/changes/undo", { method: "POST" });
     if (!out.ok) { addMessage("agent", out.message); return; }
     state.lastApplied = out.version.index > 0 ? out.version : null;
+    state.moves = out.version.moves || [];
     addMessage("agent", state.lang === "ar" ? "تم التراجع." : "Change undone.");
     await refreshAfterChange(out.version.moved);
     renderSide();

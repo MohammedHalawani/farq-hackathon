@@ -295,7 +295,8 @@ class Tools:
             "feasible": True,
             "deltas": d,
             "moved_count": len(moved),
-            "moved": moved[:20],
+            "moved": moved,
+            "moves": self.s.move_list(self.s.current, r.assignment),
         }
         return {
             "feasible": True,
