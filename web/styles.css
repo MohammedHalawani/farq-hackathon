@@ -522,6 +522,9 @@ td.num, th.num { text-align: end; font-family: var(--font-mono); font-variant-nu
 
 .grid > * { background: var(--color-paper-2); padding: var(--space-2xs); }
 
+/* Not sticky: .grid sets overflow:hidden, which makes the grid itself the
+   sticky scroll container, so a sticky header slides down over the cells
+   instead of staying on its own row. Eight rows do not need a stuck header. */
 .grid .gh {
   font-family: var(--font-mono);
   font-size: 0.68rem;
@@ -529,9 +532,8 @@ td.num, th.num { text-align: end; font-family: var(--font-mono); font-variant-nu
   text-transform: uppercase;
   color: var(--color-ink-3);
   background: var(--color-paper-3);
-  position: sticky;
-  top: var(--bar-h);
-  z-index: var(--z-sticky);
+  position: relative;
+  z-index: 0;
 }
 
 .grid .gt {
