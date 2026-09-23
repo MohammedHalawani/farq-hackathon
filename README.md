@@ -77,13 +77,33 @@ better schedule than the baseline, not a mathematically optimal one.
 
 **1 · Compare** — baseline against the three profiles, every metric side by side.
 
-**2 · Timetable** — any student, cohort, instructor or room as a weekly grid.
-Clashes red, accessibility violations orange. Opens on a student who needs
-accessible rooms, showing the baseline, so the problem is visible before the fix.
+**2 · Timetable** — opens on **Noura**, who needs accessible rooms, showing the
+baseline. A persona switcher sits above the grid: Noura, **Faisal** (repeating
+Statics), and **د. أحمد العلي**. Their IDs are pinned in the generator and a test
+asserts the baseline really does fail them.
+
+A **Before / after** mode puts the baseline and the optimised schedule side by
+side for the same person, each with a problem count, and labels every bad cell
+in words: *"Structural Analysis and Statics both at 10:00"*, *"Room B1-202 ·
+floor 2 · no step-free access"*, *"12 min walk (limit 6)"*. Cleared cells are
+ticked. Every one of those strings is built in `core/metrics.py`.
 
 **3 · Agent** — resolves entities, proposes a structured constraint, and waits.
 Nothing reaches the schedule until Apply is pressed. What-if previews without
 applying.
+
+Beside the chat a **step tracker** shows what the agent actually did — read
+request, entity resolution (with the match count), rule built, schema
+validation, waiting for approval, then re-solving (kept vs moved) and a rules
+check. Steps appear one at a time. On an impossible rule the failing step turns
+red and names the rule it conflicts with. The trace is assembled in Python from
+the lookups and the solve; the model does not write it.
+
+After a change the timetable shows each moved meeting's **old slot as a faded
+dashed ghost** and outlines where it landed, with a side list reading
+*"Landscape S55: Tuesday 15:00 · B1-103 → Tuesday 12:00 · B1-103"*. Ask why a
+gap exists and the gap slots are hatched, with an icon and a short reason on
+every class that tried to fill it.
 
 **4 · Change log** — every applied change with its timestamp.
 

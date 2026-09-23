@@ -159,6 +159,8 @@ function renderHeadline() {
   const band = el("div", "band");
   band.appendChild(el("p", "eyebrow", state.lang === "ar" ? "النتيجة" : "Headline"));
   const grid = el("div", "band-grid");
+  const applied = state.lastApplied;
+  const total = (state.meta?.counts?.sections ?? 60) * 2;
   const stats = [
     [state.lang === "ar" ? "مخالفات إمكانية الوصول" : "Accessibility violations",
      b.accessibility_violations, best.accessibility_violations,
@@ -169,6 +171,11 @@ function renderHeadline() {
     [state.lang === "ar" ? "طلاب بفراغ ساعتين فأكثر" : "Students with a 2h+ gap",
      pctLabel(b.pct_students_with_2h_gap), pctLabel(best.pct_students_with_2h_gap),
      state.lang === "ar" ? "فراغ متصل خلال اليوم" : "an unbroken idle block in their day", false],
+    [state.lang === "ar" ? "محاضرات نُقلت بآخر تغيير" : "Meetings moved by the last change",
+     applied ? String(total - applied.moved_count) + " " + (state.lang === "ar" ? "ثابتة" : "kept") : "\u2014",
+     applied ? String(applied.moved_count) : "\u2014",
+     applied ? applied.label : (state.lang === "ar" ? "لم يُطبَّق تغيير بعد" : "no change applied yet"),
+     false],
   ];
   const counters = [];
   stats.forEach(([label, from, to, note, signal], i) => {
@@ -193,6 +200,7 @@ function renderHeadline() {
 
   // count each headline figure up once the band is on screen
   counters.forEach(([node, text], i) => {
+    if (!/\d/.test(text)) return;   // the placeholder dash never counts up
     const isPct = text.endsWith("%");
     const value = parseFloat(text);
     const render = (v) => (isPct ? pctLabel(v) : String(Math.round(v)));
