@@ -5,6 +5,9 @@
  * pre-emit critique: P5 H5 E4 S5 R5 V4
  * contrast: pass (40-41) · honest: pass (46) · chrome: pass (47) · tokens: pass (48)
  * responsive: pass (49) · mobile: pass (34, 49, 50-57) · icons: pass (30)
+ * motion: 3 primitives (number reveal · stagger reveal · change flash) plus a
+ * functional solve progress bar. transform/opacity only, tokenised easing,
+ * reduced-motion collapses every one to an opacity crossfade.
  */
 
 :root {
@@ -70,7 +73,91 @@
 
   --z-sticky: 200;
   --z-sticky-nav: 300;
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-micro: 120ms;
+  --dur-short: 220ms;
+  --dur-long: 420ms;
 }
+
+/* --- primitive 1: stagger reveal (one-shot, never re-fires on scroll) --- */
+.reveal {
+  opacity: 0;
+  transform: translateY(8px);
+  animation: reveal var(--dur-long) var(--ease-out) forwards;
+  animation-delay: calc(var(--i, 0) * 45ms);
+}
+
+@keyframes reveal {
+  to { opacity: 1; transform: none; }
+}
+
+/* --- primitive 2: number reveal lives in JS; this is just its readout --- */
+.stat__to { font-variant-numeric: tabular-nums; }
+
+/* --- primitive 3: flash what the re-solve moved --- */
+.ev--moved {
+  animation: moved 1.4s var(--ease-out) 1;
+}
+
+@keyframes moved {
+  0%   { background: var(--color-accent-soft); transform: translateY(-2px); }
+  60%  { background: var(--color-accent-soft); transform: none; }
+  100% { background: var(--color-paper-3); transform: none; }
+}
+
+/* --- functional: solve progress (scaleX, never width) --- */
+.progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+  padding: var(--space-md);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--r-md);
+  background: var(--color-paper-2);
+  margin-bottom: var(--space-md);
+}
+
+.progress__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+}
+
+.progress__track {
+  position: relative;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--color-rule);
+  overflow: hidden;
+}
+
+.progress__bar {
+  position: absolute;
+  inset: 0;
+  background: var(--color-accent);
+  transform-origin: left center;
+  transform: scaleX(0);
+  transition: transform var(--dur-long) var(--ease-out);
+}
+
+[dir="rtl"] .progress__bar { transform-origin: right center; }
+
+.progress__track--idle .progress__bar {
+  transform: scaleX(0.35);
+  animation: sweep 1.4s var(--ease-in-out) infinite;
+}
+
+@keyframes sweep {
+  0%   { transform: translateX(-100%) scaleX(0.35); }
+  100% { transform: translateX(300%) scaleX(0.35); }
+}
+
+.progress__steps { display: flex; gap: var(--space-2xs); flex-wrap: wrap; }
 
 *, *::before, *::after { box-sizing: border-box; }
 
@@ -154,11 +241,14 @@ h3 { font-size: 0.95rem; font-weight: 600; line-height: 1.2; }
   padding: 0 var(--space-xs);
   cursor: pointer;
   white-space: nowrap;
-  transition: color .15s, background-color .15s, border-color .15s;
+  transition: color var(--dur-short) var(--ease-out),
+              background-color var(--dur-short) var(--ease-out),
+              border-color var(--dur-short) var(--ease-out),
+              transform var(--dur-micro) var(--ease-out);
 }
 
 .tab:hover { color: var(--color-ink); background: var(--color-paper-3); }
-.tab:active { background: var(--color-rule); }
+.tab:active { background: var(--color-rule); transform: translateY(1px); }
 .tab:disabled { opacity: .55; cursor: not-allowed; }
 .tab[aria-selected="true"] {
   color: var(--color-ink);
@@ -183,11 +273,18 @@ h3 { font-size: 0.95rem; font-weight: 600; line-height: 1.2; }
   align-items: center;
   justify-content: center;
   gap: var(--space-2xs);
-  transition: border-color .15s, background-color .15s;
+  transition: border-color var(--dur-short) var(--ease-out),
+              background-color var(--dur-short) var(--ease-out),
+              transform var(--dur-micro) var(--ease-out);
 }
 
-.btn:hover:not(:disabled) { border-color: var(--color-accent); background: var(--color-paper-3); }
-.btn:active:not(:disabled) { background: var(--color-rule); }
+.btn:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  background: var(--color-paper-3);
+  transform: translateY(-1px);
+}
+
+.btn:active:not(:disabled) { background: var(--color-rule); transform: translateY(1px); }
 .btn:disabled { opacity: .55; cursor: not-allowed; }
 
 .btn--primary {
@@ -223,7 +320,16 @@ select:disabled, input[type="text"]:disabled { opacity: .55; cursor: not-allowed
 main { padding: var(--space-lg) var(--space-md) var(--space-3xl); max-width: 1400px; margin: 0 auto; }
 
 .panel { display: none; }
-.panel.is-active { display: block; }
+
+.panel.is-active {
+  display: block;
+  animation: fade 260ms var(--ease-out) forwards;
+}
+
+@keyframes fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
 
 .head {
   display: flex;
@@ -590,8 +696,14 @@ td.num, th.num { text-align: end; font-family: var(--font-mono); font-variant-nu
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
-    animation-duration: .01ms !important;
+    animation-duration: 150ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: .01ms !important;
+    transition-duration: 150ms !important;
   }
+
+  /* spatial motion collapses to opacity; functional progress keeps running */
+  .reveal { animation: fade 150ms linear forwards; transform: none; }
+  .ev--moved { animation: fade 150ms linear 1; }
+  .btn:hover:not(:disabled), .btn:active:not(:disabled), .tab:active { transform: none; }
+  .progress__track--idle .progress__bar { animation: none; transform: scaleX(0.35); }
 }

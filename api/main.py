@@ -41,6 +41,12 @@ def generate() -> dict:
         return SESSION.generate_all()
 
 
+@app.get("/api/progress")
+def progress() -> dict:
+    """Real progress, not a guess: one tick per profile actually solved."""
+    return SESSION.progress
+
+
 @app.get("/api/entities")
 def entities() -> dict:
     u = SESSION.u

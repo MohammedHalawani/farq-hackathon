@@ -54,10 +54,45 @@ const PROFILE_LABEL = {
   ar: { student_friendly: "لصالح الطلاب", room_efficient: "كفاءة القاعات", balanced: "متوازن" },
 };
 
+const REDUCED = window.matchMedia
+  ? window.matchMedia("(prefers-reduced-motion: reduce)")
+  : { matches: false };
+
+/** Primitive 1: count a figure up to its value. Reduced motion prints it. */
+function countUp(node, to, render) {
+  const target = Number(to);
+  if (!Number.isFinite(target) || REDUCED.matches) {
+    node.textContent = render(target);
+    return;
+  }
+  const started = performance.now();
+  const dur = 1100;
+  const step = (now) => {
+    const t = Math.min((now - started) / dur, 1);
+    const eased = 1 - Math.pow(1 - t, 3);
+    node.textContent = render(target * eased);
+    if (t < 1) requestAnimationFrame(step);
+    else node.textContent = render(target);
+  };
+  requestAnimationFrame(step);
+}
+
+/** Primitive 2: one-shot stagger. Index drives the delay, CSS does the rest. */
+function stagger(nodes, from = 0) {
+  nodes.forEach((n, i) => {
+    n.style.setProperty("--i", String(Math.min(from + i, 12)));
+    n.classList.add("reveal");
+  });
+}
+
+/** Percentages the headline shows: keep a decimal while the number is small,
+ *  so 0.7% does not round away to 1%. */
+const pctLabel = (v) => (v < 10 ? Number(v).toFixed(1) : String(Math.round(v))) + "%";
+
 const state = {
   lang: "en", meta: null, entities: null, comparison: null,
   entType: "student", entId: null, source: "baseline", pending: null, busy: false,
-  lastApplied: null,
+  lastApplied: null, movedMeetings: new Set(),
 };
 
 const t = (k) => I18N[state.lang][k] || k;
@@ -128,27 +163,41 @@ function renderHeadline() {
      b.accessibility_violations, best.accessibility_violations,
      state.lang === "ar" ? "قاعة غير مهيّأة أو انتقال يتجاوز ٦ دقائق" : "inaccessible room, or transit over 6 minutes", true],
     [state.lang === "ar" ? "المعيدون بلا تعارض" : "Repeaters conflict-free",
-     b.pct_repeaters_conflict_free.toFixed(0) + "%", best.pct_repeaters_conflict_free.toFixed(0) + "%",
+     pctLabel(b.pct_repeaters_conflict_free), pctLabel(best.pct_repeaters_conflict_free),
      state.lang === "ar" ? "الطلاب الذين يحملون مقررات من مستوى أدنى" : "students carrying a lower-level course", false],
     [state.lang === "ar" ? "طلاب بفراغ ساعتين فأكثر" : "Students with a 2h+ gap",
-     b.pct_students_with_2h_gap.toFixed(0) + "%", best.pct_students_with_2h_gap.toFixed(0) + "%",
+     pctLabel(b.pct_students_with_2h_gap), pctLabel(best.pct_students_with_2h_gap),
      state.lang === "ar" ? "فراغ متصل خلال اليوم" : "an unbroken idle block in their day", false],
   ];
-  for (const [label, from, to, note, signal] of stats) {
+  const counters = [];
+  stats.forEach(([label, from, to, note, signal], i) => {
     const s = el("div", "stat");
+    s.style.setProperty("--i", String(i));
+    s.classList.add("reveal");
     s.appendChild(el("div", "stat__label", label));
     const row = el("div", "stat__row");
     row.appendChild(el("span", "stat__from", String(from)));
     const arrow = el("span", "stat__arrow", "\u2192");
     arrow.setAttribute("aria-hidden", "true");
     row.appendChild(arrow);
-    row.appendChild(el("span", "stat__to" + (signal ? " stat__to--signal" : ""), String(to)));
+    const toNode = el("span", "stat__to" + (signal ? " stat__to--signal" : ""), String(to));
+    row.appendChild(toNode);
+    counters.push([toNode, String(to)]);
     s.appendChild(row);
     s.appendChild(el("div", "stat__note", note));
     grid.appendChild(s);
-  }
+  });
   band.appendChild(grid);
   host.appendChild(band);
+
+  // count each headline figure up once the band is on screen
+  counters.forEach(([node, text], i) => {
+    const isPct = text.endsWith("%");
+    const value = parseFloat(text);
+    const render = (v) => (isPct ? pctLabel(v) : String(Math.round(v)));
+    node.textContent = render(0);
+    setTimeout(() => countUp(node, value, render), 220 + i * 90);
+  });
 }
 
 function renderComparison() {
@@ -171,8 +220,10 @@ function renderComparison() {
   thead.appendChild(hr); table.appendChild(thead);
 
   const tb = el("tbody");
+  const rows = [];
   for (const [key, en, ar, dir] of ROWS) {
     const tr = el("tr");
+    rows.push(tr);
     tr.appendChild(el("td", "metric-name", state.lang === "ar" ? ar : en));
     const bv = state.comparison.baseline[key];
     tr.appendChild(el("td", "num", fmt(key, bv)));
@@ -188,11 +239,53 @@ function renderComparison() {
     tb.appendChild(tr);
   }
   table.appendChild(tb);
+  stagger(rows);
 
   const secs = names.map((n) => state.comparison.profiles[n].seconds);
   $("#solve-note").textContent = state.lang === "ar"
     ? `زمن الحل ${Math.max(...secs).toFixed(0)} ثانية لكل ملف`
     : `solved in ${Math.max(...secs).toFixed(0)}s per profile`;
+}
+
+function showProgress() {
+  const host = $("#headline");
+  host.replaceChildren();
+  const box = el("div", "progress");
+  const head = el("div", "progress__head");
+  head.appendChild(el("span", "eyebrow", state.lang === "ar" ? "جارٍ الحل" : "Solving"));
+  const count = el("span", "chip chip--signal", "0/3");
+  head.appendChild(count);
+  box.appendChild(head);
+  const track = el("div", "progress__track progress__track--idle");
+  const bar = el("div", "progress__bar");
+  track.appendChild(bar);
+  box.appendChild(track);
+  const steps = el("div", "progress__steps");
+  box.appendChild(steps);
+  const note = el("div", "stat__note", state.lang === "ar"
+    ? "ثلاثة ملفات تُحل بالتوازي، نحو ٣٥ ثانية."
+    : "Three profiles solved in parallel, about 35 seconds.");
+  note.style.color = "var(--color-ink-3)";
+  box.appendChild(note);
+  host.appendChild(box);
+  return { track, bar, count, steps };
+}
+
+async function pollProgress(ui, stop) {
+  while (!stop.done) {
+    try {
+      const p = await api("/api/progress");
+      if (p.rounds_total) {
+        ui.track.classList.remove("progress__track--idle");
+        ui.bar.style.transform = `scaleX(${p.rounds_done / p.rounds_total})`;
+        ui.count.textContent = `${p.done}/${p.total}`;
+        ui.steps.replaceChildren(
+          ...p.solved.map((n) => el("span", "chip chip--ok", PROFILE_LABEL[state.lang][n] || n))
+        );
+      }
+    } catch (e) { /* the solve itself reports real failures */ }
+    await new Promise((r) => setTimeout(r, 400));
+  }
 }
 
 async function runSolver() {
@@ -202,16 +295,22 @@ async function runSolver() {
   btn.disabled = true;
   btn.replaceChildren(el("span", "spinner"), document.createTextNode(" " + t("running")));
   btn.querySelector(".spinner").setAttribute("aria-hidden", "true");
+  const stop = { done: false };
+  const ui = showProgress();
+  pollProgress(ui, stop);
   try {
     state.comparison = await api("/api/generate", { method: "POST" });
+    stop.done = true;
     renderComparison();
     setStatus();
     state.source = "current";
     $("#ent-source").value = "current";
     await loadGrid();
   } catch (e) {
-    alert(e.message);
+    stop.done = true;
+    $("#headline").replaceChildren(el("div", "notice notice--bad", e.message));
   } finally {
+    stop.done = true;
     state.busy = false;
     btn.disabled = false;
     btn.textContent = t("run");
@@ -294,7 +393,10 @@ function renderGrid() {
       const list = cells[`${d}:${p}`] || [];
       if (!list.length) box.classList.add("cell--empty");
       for (const c of list) {
-        const ev = el("div", "ev" + (c.conflict ? " ev--conflict" : c.accessibility_issue ? " ev--access" : ""));
+        const moved = state.movedMeetings.has(c.meeting_id);
+        const ev = el("div", "ev"
+          + (c.conflict ? " ev--conflict" : c.accessibility_issue ? " ev--access" : "")
+          + (moved ? " ev--moved" : ""));
         const title = el("div", "ev__title", state.lang === "ar" ? c.course_ar : c.course);
         title.dir = "auto";
         ev.appendChild(title);
@@ -312,6 +414,8 @@ function renderGrid() {
       host.appendChild(box);
     }
   });
+
+  stagger([...host.querySelectorAll(".ev")].slice(0, 13));
 
   const flags = $("#ent-flags");
   flags.innerHTML = "";
@@ -525,7 +629,7 @@ async function applyPending(btn) {
       addMessage("agent", (state.lang === "ar"
         ? `تم التطبيق. نُقلت ${out.version.moved_count} محاضرة.`
         : `Applied. ${out.version.moved_count} meetings moved.`));
-      await refreshAfterChange();
+      await refreshAfterChange(out.version.moved);
     }
     renderSide();
   } catch (e) {
@@ -544,7 +648,7 @@ async function doUndo(btn) {
     if (!out.ok) { addMessage("agent", out.message); return; }
     state.lastApplied = out.version.index > 0 ? out.version : null;
     addMessage("agent", state.lang === "ar" ? "تم التراجع." : "Change undone.");
-    await refreshAfterChange();
+    await refreshAfterChange(out.version.moved);
     renderSide();
   } finally {
     state.busy = false;
@@ -554,11 +658,14 @@ async function doUndo(btn) {
 
 $("#undo").addEventListener("click", () => doUndo($("#undo")));
 
-async function refreshAfterChange() {
+async function refreshAfterChange(moved) {
+  state.movedMeetings = new Set(moved || []);
   state.source = "current";
   $("#ent-source").value = "current";
   await loadGrid();
   await loadChanges();
+  // the flash is one-shot: drop the marks so a later re-render is calm
+  setTimeout(() => { state.movedMeetings = new Set(); }, 1600);
 }
 
 /* ---------- 4 · change log ---------- */

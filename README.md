@@ -87,6 +87,13 @@ applying.
 
 **4 · Change log** — every applied change with its timestamp.
 
+**Motion** is three primitives and one functional loader, per Hallmark's ceiling:
+the headline figures count up, rows and cells reveal in a one-shot stagger, and
+the meetings a re-solve moved flash once so "31 moved" is something you can see
+rather than read. The solve bar is driven by real work — one tick per search
+round, 39 of them — not a timer. Everything animates `transform` and `opacity`
+only, and `prefers-reduced-motion` collapses all of it to a crossfade.
+
 ## Demo
 
 Ask the questions before making the changes — a change reshuffles the schedule,

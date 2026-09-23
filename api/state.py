@@ -11,7 +11,7 @@ from pathlib import Path
 from core.baseline import build_baseline
 from core.metrics import compute, delta, moved_meetings
 from core.models import Assignment, University
-from core.solver import CHANGE_ROUNDS, PROFILES, solve
+from core.solver import CHANGE_ROUNDS, DEFAULT_ROUNDS, PROFILES, solve
 from data.generator import generate
 
 CACHE = Path(".cache")
@@ -44,6 +44,11 @@ class Session:
         self.pending: dict | None = None
         self.chat: list[dict] = []
         self.history: list = []
+        self.progress: dict = {
+            "stage": "idle", "done": 0, "total": 0, "solved": [],
+            "rounds_done": 0, "rounds_total": 0,
+        }
+        self._plock = threading.Lock()
 
     # --- schedules -----------------------------------------------------
     @property
@@ -56,11 +61,27 @@ class Session:
 
     def generate_all(self) -> dict:
         if not self.profiles:
+            self.progress = {
+                "stage": "solving",
+                "done": 0,
+                "total": len(PROFILES),
+                "solved": [],
+                "rounds_done": 0,
+                "rounds_total": len(PROFILES) * DEFAULT_ROUNDS,
+            }
             with ThreadPoolExecutor(max_workers=3) as pool:
                 results = dict(
                     zip(PROFILES, pool.map(self._solve_profile, PROFILES))
                 )
             self.profiles = results
+            self.progress = {
+                "stage": "done",
+                "done": len(PROFILES),
+                "total": len(PROFILES),
+                "solved": list(PROFILES),
+                "rounds_done": self.progress["rounds_total"],
+                "rounds_total": self.progress["rounds_total"],
+            }
         if not self.versions:
             self._push("Initial schedule", None, self.profiles[self.active_profile]["assignment"])
         return self.comparison()
@@ -68,16 +89,24 @@ class Session:
     def _solve_profile(self, profile: str) -> dict:
         cached = self._read_cache(profile)
         if cached is not None:
-            return cached
-        r = solve(self.u, profile, time_limit=30)
-        out = {
-            "assignment": r.assignment,
-            "metrics": compute(self.u, r.assignment),
-            "objective": r.objective,
-            "seconds": round(r.wall_time, 1),
-        }
-        self._write_cache(profile, out)
+            out = cached
+        else:
+            r = solve(self.u, profile, time_limit=30, on_round=self._tick)
+            out = {
+                "assignment": r.assignment,
+                "metrics": compute(self.u, r.assignment),
+                "objective": r.objective,
+                "seconds": round(r.wall_time, 1),
+            }
+            self._write_cache(profile, out)
+        with self._plock:
+            self.progress["done"] += 1
+            self.progress["solved"] = self.progress["solved"] + [profile]
         return out
+
+    def _tick(self) -> None:
+        with self._plock:
+            self.progress["rounds_done"] = self.progress.get("rounds_done", 0) + 1
 
     def _cache_path(self, profile: str) -> Path:
         key = hashlib.sha256(
@@ -183,7 +212,12 @@ class Session:
         dropped = self.versions.pop()
         if dropped.constraint in self.constraints:
             self.constraints.remove(dropped.constraint)
-        return {"ok": True, "version": self.version_payload(self.versions[-1])}
+        restored = self.versions[-1]
+        payload = self.version_payload(restored)
+        # what undoing actually put back, so the grid can show it
+        payload["moved"] = moved_meetings(dropped.assignment, restored.assignment)
+        payload["moved_count"] = len(payload["moved"])
+        return {"ok": True, "version": payload}
 
     def version_payload(self, v: Version) -> dict:
         return {

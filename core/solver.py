@@ -450,6 +450,7 @@ def solve(
     minimal_change: bool = False,
     hint_from: Assignment | None = None,
     rounds: int | None = None,
+    on_round=None,
 ) -> SolveResult:
     """Constructive warm start, then CP-SAT re-optimises one neighbourhood at a
     time. Every round is solved to optimality by a single worker, so the whole
@@ -550,6 +551,8 @@ def solve(
         if value < cur_obj:
             cur, cur_obj = built.read(solver, u), value
             improved += 1
+        if on_round is not None:
+            on_round()
 
     # Not a proven optimum: neighbourhood search returns the best schedule it
     # reached, and every round is guaranteed not to make it worse.
