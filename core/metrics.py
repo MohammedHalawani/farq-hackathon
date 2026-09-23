@@ -53,6 +53,20 @@ def student_idle_slots(u: University, a: Assignment, student_id: str) -> int:
     return total
 
 
+def student_longest_gap(u: University, a: Assignment, student_id: str) -> int:
+    """The longest single run of idle hours in the student's week."""
+    worst = 0
+    for _, ms in student_day_meetings(u, a, student_id).items():
+        periods = sorted({p for p, _, _ in ms})
+        if len(periods) < 2:
+            continue
+        run = 0
+        for p in range(periods[0], periods[-1] + 1):
+            run = 0 if p in periods else run + 1
+            worst = max(worst, run)
+    return worst
+
+
 def student_transits(u: University, a: Assignment, student_id: str) -> list[int]:
     out: list[int] = []
     for _, ms in student_day_meetings(u, a, student_id).items():
@@ -112,10 +126,12 @@ class Metrics:
 def compute(u: University, a: Assignment) -> dict:
     idle_per_student = {}
     conflicts_per_student = {}
+    longest_gap = {}
     transits: list[int] = []
     for st in u.students:
         idle_per_student[st.id] = student_idle_slots(u, a, st.id)
         conflicts_per_student[st.id] = student_conflicts(u, a, st.id)
+        longest_gap[st.id] = student_longest_gap(u, a, st.id)
         transits.extend(student_transits(u, a, st.id))
 
     n = len(u.students)
@@ -148,11 +164,11 @@ def compute(u: University, a: Assignment) -> dict:
             acc_transits.extend(student_transits(u, a, st.id))
 
     return {
-        "avg_idle_hours_per_student_per_day": round(
-            sum(idle_per_student.values()) / n / N_DAYS, 3
+        "avg_idle_minutes_per_student_per_day": round(
+            60 * sum(idle_per_student.values()) / n / N_DAYS, 1
         ),
         "idle_by_cohort": {
-            k: round(sum(v) / len(v), 3) for k, v in sorted(idle_by_cohort.items())
+            k: round(60 * sum(v) / len(v), 1) for k, v in sorted(idle_by_cohort.items())
         },
         "pct_students_conflict_free": round(
             100 * sum(1 for v in conflicts_per_student.values() if v == 0) / n, 1
@@ -164,6 +180,13 @@ def compute(u: University, a: Assignment) -> dict:
             1,
         ),
         "total_student_conflicts": sum(conflicts_per_student.values()),
+        "pct_students_with_2h_gap": round(
+            100 * sum(1 for v in longest_gap.values() if v >= 2) / n, 1
+        ),
+        "pct_students_with_any_gap": round(
+            100 * sum(1 for v in longest_gap.values() if v >= 1) / n, 1
+        ),
+        "worst_gap_hours": max(longest_gap.values()) if longest_gap else 0,
         "avg_room_fill_rate": round(sum(fills) / max(len(fills), 1), 3),
         "avg_walk_minutes": round(sum(transits) / max(len(transits), 1), 2),
         "accessibility_violations": len(viol),
@@ -180,7 +203,10 @@ def compute(u: University, a: Assignment) -> dict:
 
 
 SUMMARY_KEYS = [
-    ("avg_idle_hours_per_student_per_day", "Avg idle time / student / day (min)", "lower"),
+    ("avg_idle_minutes_per_student_per_day", "Avg idle minutes / student / day", "lower"),
+    ("pct_students_with_2h_gap", "% students with a 2h+ gap", "lower"),
+    ("pct_students_with_any_gap", "% students with any gap", "lower"),
+    ("worst_gap_hours", "Worst single gap (hours)", "lower"),
     ("pct_students_conflict_free", "% students conflict-free", "higher"),
     ("pct_repeaters_conflict_free", "% repeaters conflict-free", "higher"),
     ("total_student_conflicts", "Total student conflicts", "lower"),

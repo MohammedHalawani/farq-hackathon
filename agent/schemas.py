@@ -14,7 +14,7 @@ def _check_days(v: list[int]) -> list[int]:
     return sorted(set(v))
 
 
-def _check_slots(v: list[int] | Literal["all"]) -> list[int] | str:
+def _check_slots(v: "list[int] | Literal['all']") -> "list[int] | str":
     if v == "all":
         return v
     for s in v:
@@ -23,14 +23,20 @@ def _check_slots(v: list[int] | Literal["all"]) -> list[int] | str:
     return sorted(set(v))
 
 
+def _check_slots_or_all(v):
+    """Instructor availability also accepts the whole day as "all"."""
+    out = _check_slots(v)
+    return "all" if out == list(range(N_PERIODS)) else out
+
+
 class InstructorUnavailable(BaseModel, extra="forbid"):
     type: Literal["instructor_unavailable"]
     instructor_id: str
     days: list[int] = Field(min_length=1)
-    slots: Union[list[int], Literal["all"]]
+    slots: Union[Literal["all"], list[int]]
 
     _d = field_validator("days")(_check_days)
-    _s = field_validator("slots")(_check_slots)
+    _s = field_validator("slots")(_check_slots_or_all)
 
 
 class SectionAvoidSlots(BaseModel, extra="forbid"):
@@ -96,11 +102,12 @@ CONSTRAINT_TOOL_SCHEMA = {
             "description": "0=Sunday 1=Monday 2=Tuesday 3=Wednesday 4=Thursday",
         },
         "slots": {
-            "description": "Hour indexes, 0=08:00 .. 7=15:00, or the string \"all\"",
-            "anyOf": [
-                {"type": "array", "items": {"type": "integer"}},
-                {"type": "string", "enum": ["all"]},
-            ],
+            "type": "array",
+            "items": {"type": "integer"},
+            "description": (
+                "Hour indexes: 0=08:00, 1=09:00 ... 7=15:00. "
+                "For a whole day use [0,1,2,3,4,5,6,7]."
+            ),
         },
         "max_classes": {"type": "integer"},
     },

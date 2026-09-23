@@ -8,7 +8,16 @@ from core.models import University
 
 DIACRITICS = re.compile(r"[ؐ-ًؚ-ٰٟۖ-ۜ]")
 TATWEEL = "ـ"
-TITLES = ("د.", "د", "dr.", "dr", "prof.", "prof", "أ.د.", "أ.")
+# Titles and the generic nouns people put in front of a name. Stripping them
+# means "شعبة S19" and "room B12" match the way "S19" and "B12" do.
+NOISE = {
+    "د", "د.", "دكتور", "دكتوره", "الدكتور", "الدكتوره", "أ", "أ.د.", "ا",
+    "استاذ", "الاستاذ", "مدرس", "المدرس", "معلم",
+    "dr", "dr.", "prof", "prof.", "professor", "doctor", "instructor", "teacher",
+    "شعبه", "الشعبه", "قاعه", "القاعه", "غرفه", "الغرفه", "مقرر", "المقرر",
+    "ماده", "الماده", "طالب", "الطالب", "طالبه", "دفعه", "الدفعه",
+    "section", "room", "hall", "course", "class", "student", "cohort", "group",
+}
 
 
 def normalize(text: str) -> str:
@@ -18,8 +27,7 @@ def normalize(text: str) -> str:
     t = re.sub("[إأآا]", "ا", t)
     t = t.replace("ى", "ي").replace("ة", "ه").replace("ؤ", "و").replace("ئ", "ي")
     t = re.sub(r"[^\w\s؀-ۿ-]", " ", t)
-    words = [w for w in t.split() if w not in TITLES]
-    return " ".join(words)
+    return " ".join(w for w in t.split() if w not in NOISE)
 
 
 def _score(query: str, candidate: str) -> float:
@@ -37,7 +45,10 @@ def _score(query: str, candidate: str) -> float:
         max(SequenceMatcher(None, a, b).ratio() for b in cw) for a in qw
     ]
     token = sum(per_word) / len(per_word)
-    return max(token, SequenceMatcher(None, q, c).ratio())
+    # Whole-string similarity only rescues near-identical spellings ("b 12" vs
+    # "B12"). Left ungated it pairs any two Arabic names of the same shape.
+    whole = SequenceMatcher(None, q, c).ratio()
+    return max(token, whole) if whole >= 0.85 else token
 
 
 DEPT_WORDS = {
@@ -65,7 +76,14 @@ def cohort_keys(cohort: str) -> list[str]:
 def candidates(u: University) -> list[dict]:
     out: list[dict] = []
     for i in u.instructors:
-        out.append({"kind": "instructor", "id": i.id, "label": i.name, "keys": [i.name, i.id]})
+        out.append(
+            {
+                "kind": "instructor",
+                "id": i.id,
+                "label": f"{i.name} ({i.name_en})" if i.name_en else i.name,
+                "keys": [i.name, i.name_en, i.id],
+            }
+        )
     for r in u.rooms:
         out.append(
             {
@@ -100,27 +118,50 @@ def candidates(u: University) -> list[dict]:
                 "kind": "student",
                 "id": st.id,
                 "label": f"{st.name} ({st.id}, {st.department}-L{st.level})",
-                "keys": [st.name, st.id],
+                # the ID is matched exactly, never fuzzily: there are 300 of
+                # them and "S99" must not drift into "ST099"
+                "keys": [st.name],
             }
         )
     return out
 
 
+def is_vague(query: str) -> bool:
+    """True when the query is only a title or a generic noun, e.g. 'الدكتورة'."""
+    return not normalize(query).strip()
+
+
 def resolve(u: University, query: str, kind: str | None = None, limit: int = 5) -> list[dict]:
     """Fuzzy match over every entity. Returns the plausible matches, best first."""
-    pool = candidates(u)
-    if kind:
-        pool = [c for c in pool if c["kind"] == kind]
-    exact = [c for c in pool if normalize(c["id"]) == normalize(query)]
+    if is_vague(query):
+        return []
+    everything = candidates(u)
+    # `kind` is a hint, not a filter: callers guess it wrong ("شعبة" reads as
+    # cohort but means section), so fall back to searching everything.
+    # The fallback pool needs a much stronger match before it overrides the
+    # hint, or "S99" starts matching a student called ST099.
+    pools = (
+        [([c for c in everything if c["kind"] == kind], 0.72), (everything, 0.88)]
+        if kind
+        else [(everything, 0.72)]
+    )
+    exact = [c for c in everything if normalize(c["id"]) == normalize(query)]
     if exact:
-        pool = exact
-    scored = []
-    for c in pool:
-        best = max(_score(query, k) for k in c["keys"])
-        if best >= 0.72:
-            scored.append((best, c))
-    scored.sort(key=lambda x: (-x[0], x[1]["id"]))
-    top = scored[:limit]
+        return [
+            {"kind": c["kind"], "id": c["id"], "label": c["label"], "score": 1.0}
+            for c in exact
+        ]
+    top: list[tuple[float, dict]] = []
+    for pool, floor in pools:
+        scored = []
+        for c in pool:
+            best = max(_score(query, k) for k in c["keys"] if k)
+            if best >= floor:
+                scored.append((best, c))
+        scored.sort(key=lambda x: (-x[0], x[1]["id"]))
+        top = scored[:limit]
+        if top:
+            break
     # keep only matches close to the best one, so a clear winner stays unambiguous
     if top:
         best = top[0][0]

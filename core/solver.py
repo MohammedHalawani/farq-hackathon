@@ -50,7 +50,10 @@ import os
 
 _TRACE = bool(os.environ.get("SOLVER_TRACE"))
 ROUND_DET_TIME = 0.8
-DEFAULT_ROUNDS = 10  # per-neighbourhood budget; single-worker, so reproducible
+DEFAULT_ROUNDS = 13
+# Re-solves after a confirmed change use fewer rounds so the admin is not kept
+# waiting. what_if and apply MUST use the same value or the preview would lie.
+CHANGE_ROUNDS = 4  # per-neighbourhood budget; single-worker, so reproducible
 
 
 @dataclass
@@ -463,9 +466,14 @@ def solve(
     for m in u.meetings:
         if not allowed_slots[m.id] or not allowed_rooms[m.id]:
             sec = u.section_by_id[m.section_id]
+            course = u.course_by_id[sec.course_id]
+            lack = "slot" if not allowed_slots[m.id] else "room"
             return SolveResult(
                 "INFEASIBLE", None, None, 0.0, profile,
-                message=f"No slot or room left for section {sec.id}",
+                message=(
+                    f"{course.name} ({sec.id}, {u.instructor_by_id[sec.instructor_id].name}) "
+                    f"has no {lack} left under these rules."
+                ),
             )
 
     built = _build_model(
@@ -473,9 +481,12 @@ def solve(
     )
 
     starts = [c for c in (base, hint_from) if c is not None]
-    starts.append(
-        greedy_start(u, allowed_slots, allowed_rooms, built.max_daily, w)
-    )
+    if base is not None:
+        # repair the schedule we have before considering a rebuild
+        starts.append(
+            greedy_start(u, allowed_slots, allowed_rooms, built.max_daily, w, keep=base)
+        )
+    starts.append(greedy_start(u, allowed_slots, allowed_rooms, built.max_daily, w))
     cur: Assignment | None = None
     cur_obj: int | None = None
     for cand in starts:
@@ -501,11 +512,12 @@ def solve(
             int(solver.ObjectiveValue()), _time.time() - started, profile,
         )
 
-    hoods = _neighborhoods(u, cur)[: rounds or DEFAULT_ROUNDS]
+    hoods = _neighborhoods(u, cur)[: DEFAULT_ROUNDS if rounds is None else rounds]
     improved = 0
     for free in hoods:
-        if _time.time() - started > time_limit:
-            break
+        # No wall-clock cutoff here on purpose: the number of rounds is what
+        # makes a solve reproducible. A busy machine takes longer, not a
+        # different answer.
         round_model = cp_model.CpModel()
         round_model.Proto().copy_from(built.model.Proto())
         hint = round_model.Proto().solution_hint
@@ -539,8 +551,10 @@ def solve(
             cur, cur_obj = built.read(solver, u), value
             improved += 1
 
+    # Not a proven optimum: neighbourhood search returns the best schedule it
+    # reached, and every round is guaranteed not to make it worse.
     return SolveResult(
-        "OPTIMAL" if improved else "FEASIBLE", cur, cur_obj,
+        "IMPROVED" if improved else "FEASIBLE", cur, cur_obj,
         _time.time() - started, profile,
-        message=f"{improved} neighbourhood(s) improved",
+        message=f"{improved} of {len(hoods)} neighbourhoods improved",
     )

@@ -52,7 +52,7 @@ ROOMS = [
     ("B5-101", "B5", 60, False),
     ("B5-102", "B5", 28, False),
     ("B5-201", "B5", 100, False),
-    ("B12", "B5", 50, False),
+    ("B12", "B5", 25, False),
 ]
 
 DEPARTMENTS = [
@@ -80,6 +80,24 @@ INSTRUCTOR_NAMES = [
     "د. لطيفة العنزي",
     "د. سلطان الجهني",
     "د. عائشة المطيري",
+]
+
+INSTRUCTOR_NAMES_EN = [
+    "Dr. Ahmed Alali",
+    "Dr. Ahmed Alghamdi",
+    "Dr. Sarah Alqahtani",
+    "Dr. Khalid Alshamri",
+    "Dr. Noura Alharbi",
+    "Dr. Fahd Alotaibi",
+    "Dr. Mona Alzahrani",
+    "Dr. Abdullah Aldosari",
+    "Dr. Reem Almalki",
+    "Dr. Yasser Alsubaie",
+    "Dr. Hind Alrasheed",
+    "Dr. Majed Albogami",
+    "Dr. Latifa Alanazi",
+    "Dr. Sultan Aljehani",
+    "Dr. Aisha Almutairi",
 ]
 
 COURSE_WORDS = {
@@ -160,7 +178,10 @@ def generate(seed: int = SEED) -> University:
         ranked = sorted(dept_courses[dept], key=lambda c: (-shared_count[c.id], c.id))
         doubled.update(c.id for c in ranked[:5])
 
-    instructors = [Instructor(f"I{i + 1:02d}", n) for i, n in enumerate(INSTRUCTOR_NAMES)]
+    instructors = [
+        Instructor(f"I{i + 1:02d}", n, INSTRUCTOR_NAMES_EN[i])
+        for i, n in enumerate(INSTRUCTOR_NAMES)
+    ]
 
     sections: list[Section] = []
     sections_of_course: dict[str, list[Section]] = {}

@@ -45,6 +45,7 @@ class Room:
 class Instructor:
     id: str
     name: str
+    name_en: str = ""
     unavailable_slots: set[int] = field(default_factory=set)
 
 

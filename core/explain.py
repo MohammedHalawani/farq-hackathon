@@ -5,6 +5,7 @@ from __future__ import annotations
 from core.metrics import (
     ACCESSIBLE_TRANSIT_LIMIT,
     student_day_meetings,
+    student_idle_slots,
 )
 from core.models import (
     DAYS,
@@ -158,10 +159,15 @@ def _cost_of_move(u: University, a: Assignment, mid: str, slot: int, room: str) 
             for p, r, _ in student_day_meetings(u, trial, sid)[slot_day(slot)]:
                 if abs(p - slot_period(slot)) == 1 and u.walk_minutes(r, room) > ACCESSIBLE_TRANSIT_LIMIT:
                     new_transit += 1
+    affected = sorted(set(u.students_of_section[sec.id]))
+    idle_before = sum(student_idle_slots(u, a, sid) for sid in affected)
+    idle_after = sum(student_idle_slots(u, trial, sid) for sid in affected)
     return {
         "room": room,
         "new_student_clashes": new_clashes,
         "new_accessibility_transit_breaches": new_transit,
+        "idle_hours_saved": idle_before - idle_after,
+        "students_affected": len(affected),
     }
 
 
@@ -213,18 +219,42 @@ def explain_gap(
             }
             if not why:
                 rooms, _ = _room_options(u, a, constraints, m["meeting_id"], slot)
-                entry["would_cost"] = min(
+                best = min(
                     (_cost_of_move(u, a, m["meeting_id"], slot, r) for r in rooms),
                     key=lambda c: (
                         c["new_accessibility_transit_breaches"],
                         c["new_student_clashes"],
+                        -c["idle_hours_saved"],
                     ),
                 )
+                entry["would_cost"] = best
+                if best["new_student_clashes"]:
+                    entry["verdict"] = (
+                        f"nothing forbids the move, but it would clash with "
+                        f"{best['new_student_clashes']} students' other classes"
+                    )
+                elif best["idle_hours_saved"] <= 0:
+                    entry["verdict"] = (
+                        "the move is allowed but pointless: it would not shorten "
+                        "any student's day, because the students in this class are "
+                        "not the ones sitting through the gap"
+                    )
+                else:
+                    entry["verdict"] = (
+                        f"possible, and it would save "
+                        f"{best['idle_hours_saved']} idle hours"
+                    )
             findings.append(entry)
 
     return {
         "entity_id": entity_id,
         "day": DAYS[day],
+        "counts_as": (
+            "one student's own timetable"
+            if entity_id in u.student_by_id
+            else "every class this cohort takes, pooled; an individual student "
+            "may sit through less of it"
+        ),
         "gap_hours": [hour(g) for g in gaps],
         "gap_length_hours": len(gaps),
         "classes_that_day": [

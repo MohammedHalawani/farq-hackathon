@@ -11,7 +11,7 @@ from pathlib import Path
 from core.baseline import build_baseline
 from core.metrics import compute, delta, moved_meetings
 from core.models import Assignment, University
-from core.solver import PROFILES, solve
+from core.solver import CHANGE_ROUNDS, PROFILES, solve
 from data.generator import generate
 
 CACHE = Path(".cache")
@@ -154,7 +154,7 @@ class Session:
             constraints=proposed,
             base=self.current,
             minimal_change=True,
-            time_limit=30,
+            rounds=CHANGE_ROUNDS,
         )
         if r.assignment is None:
             return {
@@ -172,7 +172,7 @@ class Session:
         for i, c in enumerate(self.constraints):
             trial = [x for j, x in enumerate(self.constraints) if j != i]
             trial.append(new_constraint)
-            r = solve(self.u, self.active_profile, constraints=trial, time_limit=10, rounds=0)
+            r = solve(self.u, self.active_profile, constraints=trial, rounds=0)
             if r.assignment is not None:
                 out.append(c)
         return out or [new_constraint]

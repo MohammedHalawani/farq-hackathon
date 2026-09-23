@@ -6,17 +6,20 @@ import os
 from dotenv import load_dotenv
 
 from agent.describe import describe, short_label
-from agent.resolver import resolve
+from agent.resolver import is_vague, resolve
 from agent.schemas import CONSTRAINT_TOOL_SCHEMA, parse_constraint
 from core.explain import explain_gap, explain_meeting
 from core.metrics import delta, moved_meetings
 from core.models import DAYS, FIRST_HOUR, slot_day, slot_period
-from core.solver import solve
+from core.solver import CHANGE_ROUNDS, solve
 
 load_dotenv()
 
-MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-opus-5")
+MODEL = os.environ.get("OLLAMA_MODEL", "gpt-oss:120b-cloud")
+HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 MAX_STEPS = 8
+MAX_TURNS = 8        # how much conversation the model is shown
+MAX_TOOL_CHARS = 3000  # a tool result is evidence, not a document
 
 SYSTEM = """You are the scheduling assistant for a university timetabling console.
 
@@ -33,24 +36,35 @@ RESOLVING ENTITIES
 Call get_entity for every person, room, section or cohort the administrator names.
 - 0 matches  -> say you could not find it. Do not guess a near match.
 - 2+ matches -> list them and ask which one. Do not pick one yourself.
-- 1 match    -> use its ID.
+- 1 match    -> use that ID and carry straight on. Never ask the administrator
+               to confirm a single match, and never ask again for something the
+               lookup already answered.
 
 WHAT THE ADMINISTRATOR IS ASKING FOR
-- A rule to add ("X can't teach Tuesday afternoon", "close room B12")
-  -> call propose_constraint. This only proposes: the administrator sees a
-     confirmation card and decides. Say what you proposed and that it awaits confirmation.
-- A hypothetical ("what if...", "ماذا لو", "لو أغلقنا")
-  -> call what_if. It previews the effect without applying anything.
+- A rule to add ("X can't teach Tuesday afternoon", "close room B12", "د. ماجد
+  ماله محاضرات الاثنين") -> call propose_constraint. A flat statement about when
+  someone is or is not teaching is a rule to add, not a question about the
+  current schedule. This only proposes: the administrator sees a confirmation
+  card and decides. Say what you proposed and that it awaits confirmation.
+- A hypothetical -> call what_if, which previews the effect without applying
+  anything. The markers are "what if", "what would happen if", "try",
+  "ماذا لو", "لو", "وش يصير لو", "جرّب لو", "إذا أغلقنا". If the sentence asks
+  what *would* change, call what_if and never propose_constraint — the two are
+  not interchangeable, and a hypothetical answered with a proposal is wrong.
 - A question about the schedule ("why is there a gap", "ليش فيه فراغ", "why is this
   class here") -> call explain_gap or explain_meeting and phrase what comes back.
   These return the real blocking constraints; report them, do not speculate.
 
 TIME
-Days are 0=Sunday, 1=Monday, 2=Tuesday, 3=Wednesday, 4=Thursday. The teaching day is
-8 one-hour slots: slot 0 = 08:00 ... slot 7 = 15:00. "After 2pm" means slots 6 and 7.
-"Morning" is slots 0-3, "afternoon" is slots 4-7."""
+Days are 0=Sunday, 1=Monday, 2=Tuesday, 3=Wednesday, 4=Thursday. Friday and Saturday
+are the weekend and do not exist. The teaching day is 8 one-hour slots:
+slot 0 = 08:00, slot 1 = 09:00 ... slot 7 = 15:00.
+- "after N o'clock" / "بعد الساعة N" includes the slot that starts at N.
+  "after 2pm" is slots 6,7. "after 12" is slots 4,5,6,7.
+- "before N o'clock" excludes the slot starting at N. "before 10am" is slots 0,1.
+- "morning" is slots 0-3, "afternoon" is slots 4-7, a whole day is slots 0-7."""
 
-TOOLS = [
+RAW_TOOLS = [
     {
         "name": "get_entity",
         "description": (
@@ -58,7 +72,6 @@ TOOLS = [
             "sections, cohorts and students. Handles Arabic and English, and typos. "
             "Always use this before naming any ID."
         ),
-        "strict": True,
         "input_schema": {
             "type": "object",
             "additionalProperties": False,
@@ -68,7 +81,10 @@ TOOLS = [
                 "kind": {
                     "type": "string",
                     "enum": ["instructor", "room", "section", "cohort", "student"],
-                    "description": "Optional filter when you know what you are looking for.",
+                    "description": (
+                        "Optional hint. A 'section' is one class group (S19); a "
+                        "'cohort' is a department and level (BA-L3). Omit it if unsure."
+                    ),
                 },
             },
         },
@@ -79,7 +95,6 @@ TOOLS = [
             "Propose one scheduling rule for the administrator to confirm. Does NOT "
             "change the schedule. Use for any request to add a rule."
         ),
-        "strict": True,
         "input_schema": {
             "type": "object",
             "additionalProperties": False,
@@ -93,7 +108,6 @@ TOOLS = [
             "Preview a rule: re-solves in the background and returns the metric changes "
             "and how many meetings would move. Applies nothing."
         ),
-        "strict": True,
         "input_schema": {
             "type": "object",
             "additionalProperties": False,
@@ -108,7 +122,6 @@ TOOLS = [
             "hours and, for each class next to it, the hard constraint that blocks "
             "moving it in, or what the move would cost."
         ),
-        "strict": True,
         "input_schema": {
             "type": "object",
             "additionalProperties": False,
@@ -122,7 +135,6 @@ TOOLS = [
     {
         "name": "explain_meeting",
         "description": "Why one meeting sits in its current slot and room.",
-        "strict": True,
         "input_schema": {
             "type": "object",
             "additionalProperties": False,
@@ -133,7 +145,6 @@ TOOLS = [
     {
         "name": "get_schedule",
         "description": "The current weekly schedule for one instructor, room, section, cohort or student.",
-        "strict": True,
         "input_schema": {
             "type": "object",
             "additionalProperties": False,
@@ -150,7 +161,6 @@ TOOLS = [
     {
         "name": "get_metrics",
         "description": "The current schedule's metrics, and the baseline's for comparison.",
-        "strict": True,
         "input_schema": {
             "type": "object",
             "additionalProperties": False,
@@ -158,6 +168,19 @@ TOOLS = [
             "properties": {},
         },
     },
+]
+
+
+TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": t["name"],
+            "description": t["description"],
+            "parameters": t["input_schema"],
+        },
+    }
+    for t in RAW_TOOLS
 ]
 
 
@@ -169,6 +192,7 @@ class Tools:
         self.card: dict | None = None
         self.dry_run = dry_run
         self.calls: list[tuple[str, dict]] = []
+        self.lookups: list[dict] = []
 
     def run(self, name: str, args: dict) -> dict:
         self.calls.append((name, args))
@@ -182,14 +206,30 @@ class Tools:
 
     def t_get_entity(self, name_query: str, kind: str | None = None) -> dict:
         matches = resolve(self.s.u, name_query, kind)
+        vague = is_vague(name_query)
+        self.lookups.append({"query": name_query, "count": len(matches), "vague": vague})
         return {
             "query": name_query,
             "match_count": len(matches),
             "matches": matches,
             "note": (
-                "No match. Tell the administrator it was not found."
+                "This names no specific person or place. Ask the administrator "
+                "who or what they mean. Do NOT say it was not found."
+                if vague
+                else "No match. Tell the administrator it was not found."
                 if not matches
-                else "Exactly one match; use this ID."
+                else (
+                    f"Exactly one match: the {matches[0]['kind']} "
+                    f"{matches[0]['id']}. Use that id and carry on with the "
+                    "request. Do not ask the administrator to confirm it"
+                    + (
+                        f", and do not be put off that you searched for a "
+                        f"{kind} — the hint was wrong, this is the entity they "
+                        "meant."
+                        if kind and kind != matches[0]["kind"]
+                        else "."
+                    )
+                )
                 if len(matches) == 1
                 else "Ambiguous. Ask the administrator which one they mean."
             ),
@@ -225,7 +265,7 @@ class Tools:
             constraints=self.s.constraints + [c],
             base=self.s.current,
             minimal_change=True,
-            rounds=4,
+            rounds=CHANGE_ROUNDS,
         )
         if r.assignment is None:
             blocking = self.s._blocking(c)
@@ -322,70 +362,112 @@ class Tools:
                 )
 
 
+def _recent(history: list) -> list:
+    """Keep the tail of the conversation, cut at a clean user turn so a tool
+    result is never separated from the call that produced it."""
+    if len(history) <= MAX_TURNS:
+        return list(history)
+    tail = history[-MAX_TURNS:]
+    for i, m in enumerate(tail):
+        if m.get("role") == "user":
+            return tail[i:]
+    return []
+
+
 class Agent:
+    """Ollama cloud, native tool calling. One small surface, so the model can be
+    swapped with an env var."""
+
     def __init__(self) -> None:
-        self.key = os.environ.get("ANTHROPIC_API_KEY")
         self._client = None
 
     @property
     def client(self):
         if self._client is None:
-            import anthropic
+            import ollama
 
-            self._client = anthropic.Anthropic(api_key=self.key)
+            self._client = ollama.Client(host=HOST)
         return self._client
 
+    def available(self) -> tuple[bool, str]:
+        try:
+            names = {m.model for m in self.client.list().models}
+        except Exception as e:
+            return False, (
+                f"Cannot reach Ollama at {HOST} ({type(e).__name__}). "
+                "Start it with `ollama serve`."
+            )
+        if MODEL not in names:
+            return False, (
+                f"Model '{MODEL}' is not available. Run `ollama pull {MODEL}` "
+                "(cloud models also need `ollama signin`)."
+            )
+        return True, ""
+
     def handle(self, message: str, session, history: list, tools=None) -> dict:
-        if not self.key:
-            return {
-                "reply": (
-                    "No ANTHROPIC_API_KEY is set, so the assistant is offline. "
-                    "Copy .env.example to .env and add a key."
-                ),
-                "card": None,
-                "history": history,
-                "offline": True,
-            }
+        ok, why = self.available()
+        if not ok:
+            return {"reply": why, "card": None, "history": history, "offline": True,
+                    "calls": []}
 
         tools = tools or Tools(session)
-        messages = history + [{"role": "user", "content": message}]
+        messages = _recent(history) + [{"role": "user", "content": message}]
+        reply = ""
 
         for _ in range(MAX_STEPS):
-            response = self.client.messages.create(
+            response = self.client.chat(
                 model=MODEL,
-                max_tokens=16000,
-                system=SYSTEM,
+                messages=[{"role": "system", "content": SYSTEM}] + messages,
                 tools=TOOLS,
-                thinking={"type": "adaptive"},
-                output_config={"effort": "medium"},
-                messages=messages,
+                think=False,
+                options={"temperature": 0},
             )
-            messages.append({"role": "assistant", "content": response.content})
-            if response.stop_reason != "tool_use":
+            msg = response["message"]
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": msg.get("content") or "",
+                    **({"tool_calls": msg["tool_calls"]} if msg.get("tool_calls") else {}),
+                }
+            )
+            reply = msg.get("content") or reply
+            calls = msg.get("tool_calls") or []
+            if not calls:
                 break
-            results = []
-            for block in response.content:
-                if block.type != "tool_use":
-                    continue
-                out = tools.run(block.name, dict(block.input))
-                results.append(
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": json.dumps(out, ensure_ascii=False, default=str),
-                    }
+            for call in calls:
+                fn = call["function"]
+                args = fn.get("arguments") or {}
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args)
+                    except json.JSONDecodeError:
+                        args = {}
+                out = tools.run(fn["name"], dict(args))
+                payload = json.dumps(out, ensure_ascii=False, default=str)
+                if len(payload) > MAX_TOOL_CHARS:
+                    payload = payload[:MAX_TOOL_CHARS] + ' …", "truncated": true}'
+                messages.append(
+                    {"role": "tool", "tool_name": fn["name"], "content": payload}
                 )
-            messages.append({"role": "user", "content": results})
 
-        reply = "\n".join(
-            b.text for b in response.content if b.type == "text"
-        ).strip()
+        if not (reply or "").strip():
+            # It ran out of steps without writing an answer: ask once more with
+            # the tools withheld so it has to put the answer in words.
+            final = self.client.chat(
+                model=MODEL,
+                messages=[{"role": "system", "content": SYSTEM}] + messages,
+                think=False,
+                options={"temperature": 0},
+            )
+            reply = final["message"].get("content") or ""
+
         return {
-            "reply": reply or "(no reply)",
+            "reply": (reply or "").strip() or "(no reply)",
             "card": tools.card,
             "history": messages,
             "offline": False,
             "calls": tools.calls,
+            "lookups": tools.lookups,
         }
 
 

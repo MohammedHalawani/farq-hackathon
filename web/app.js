@@ -90,7 +90,8 @@ $("#lang-toggle").addEventListener("click", () => { state.lang = state.lang === 
 
 /* ---------- 1 · compare ---------- */
 const FMT = {
-  avg_idle_hours_per_student_per_day: (v) => (v * 60).toFixed(1),
+  avg_idle_minutes_per_student_per_day: (v) => v.toFixed(1),
+  instructor_load_std: (v) => v.toFixed(2),
   pct_students_conflict_free: (v) => v.toFixed(1) + "%",
   pct_repeaters_conflict_free: (v) => v.toFixed(1) + "%",
   avg_room_fill_rate: (v) => (v * 100).toFixed(1) + "%",
@@ -104,7 +105,10 @@ const ROWS = [
   ["accessibility_violations", "Accessibility violations", "مخالفات إمكانية الوصول", "lower"],
   ["access_max_transit_minutes", "Max transit, accessibility (min)", "أقصى انتقال لذوي الإعاقة (د)", "lower"],
   ["access_avg_transit_minutes", "Avg transit, accessibility (min)", "متوسط الانتقال لذوي الإعاقة (د)", "lower"],
-  ["avg_idle_hours_per_student_per_day", "Avg idle minutes / student / day", "متوسط دقائق الفراغ لكل طالب يوميًا", "lower"],
+  ["avg_idle_minutes_per_student_per_day", "Avg idle minutes / student / day", "متوسط دقائق الفراغ لكل طالب يوميًا", "lower"],
+  ["pct_students_with_2h_gap", "% students with a 2h+ gap", "نسبة الطلاب بفراغ ساعتين فأكثر", "lower"],
+  ["pct_students_with_any_gap", "% students with any gap", "نسبة الطلاب بأي فراغ", "lower"],
+  ["worst_gap_hours", "Worst single gap (hours)", "أطول فراغ متصل (ساعات)", "lower"],
   ["avg_walk_minutes", "Avg walking minutes", "متوسط دقائق المشي", "lower"],
   ["avg_room_fill_rate", "Avg room fill rate", "متوسط إشغال القاعات", "higher"],
   ["instructor_load_std", "Instructor load std. dev.", "الانحراف المعياري لحمل المدرّسين", "lower"],
@@ -126,10 +130,9 @@ function renderHeadline() {
     [state.lang === "ar" ? "المعيدون بلا تعارض" : "Repeaters conflict-free",
      b.pct_repeaters_conflict_free.toFixed(0) + "%", best.pct_repeaters_conflict_free.toFixed(0) + "%",
      state.lang === "ar" ? "الطلاب الذين يحملون مقررات من مستوى أدنى" : "students carrying a lower-level course", false],
-    [state.lang === "ar" ? "دقائق الفراغ يوميًا" : "Idle minutes per day",
-     (b.avg_idle_hours_per_student_per_day * 60).toFixed(0),
-     (best.avg_idle_hours_per_student_per_day * 60).toFixed(0),
-     state.lang === "ar" ? "متوسط لكل طالب" : "average per student", false],
+    [state.lang === "ar" ? "طلاب بفراغ ساعتين فأكثر" : "Students with a 2h+ gap",
+     b.pct_students_with_2h_gap.toFixed(0) + "%", best.pct_students_with_2h_gap.toFixed(0) + "%",
+     state.lang === "ar" ? "فراغ متصل خلال اليوم" : "an unbroken idle block in their day", false],
   ];
   for (const [label, from, to, note, signal] of stats) {
     const s = el("div", "stat");
@@ -326,13 +329,13 @@ const SUGGEST = {
   en: [
     "Dr. Ahmed can't teach Tuesday after 2pm",
     "What if we close room B12?",
-    "Why does BA-L3 have a 3-hour gap on Tuesday?",
+    "Why does AR-L2 have a 3-hour gap on Thursday?",
     "Why is meeting S01-m1 scheduled where it is?",
   ],
   ar: [
     "د. أحمد ما يقدر يدرّس الثلاثاء بعد الساعة ٢",
     "ماذا لو أغلقنا قاعة B12؟",
-    "ليش عند إدارة الأعمال المستوى الثالث فراغ ٣ ساعات يوم الثلاثاء؟",
+    "ليش عند عمارة المستوى الثاني فراغ ٣ ساعات يوم الخميس؟",
     "وش جدول د. سارة القحطاني؟",
   ],
 };
