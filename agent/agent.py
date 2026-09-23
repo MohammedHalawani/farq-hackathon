@@ -164,11 +164,14 @@ TOOLS = [
 class Tools:
     """Every tool runs deterministic Python. The model only chooses which to call."""
 
-    def __init__(self, session) -> None:
+    def __init__(self, session, dry_run: bool = False) -> None:
         self.s = session
         self.card: dict | None = None
+        self.dry_run = dry_run
+        self.calls: list[tuple[str, dict]] = []
 
     def run(self, name: str, args: dict) -> dict:
+        self.calls.append((name, args))
         fn = getattr(self, f"t_{name}", None)
         if fn is None:
             return {"error": f"No tool named {name}."}
@@ -211,6 +214,9 @@ class Tools:
     def t_what_if(self, constraint: dict) -> dict:
         c = parse_constraint(constraint)
         self._check_ids(c)
+        if self.dry_run:
+            return {"feasible": True, "meetings_moved": 0, "metric_changes": {},
+                    "note": "Preview skipped (evaluation mode)."}
         if self.s.current is None:
             return {"error": "No schedule yet. Run the solver first."}
         r = solve(
@@ -329,7 +335,7 @@ class Agent:
             self._client = anthropic.Anthropic(api_key=self.key)
         return self._client
 
-    def handle(self, message: str, session, history: list) -> dict:
+    def handle(self, message: str, session, history: list, tools=None) -> dict:
         if not self.key:
             return {
                 "reply": (
@@ -341,7 +347,7 @@ class Agent:
                 "offline": True,
             }
 
-        tools = Tools(session)
+        tools = tools or Tools(session)
         messages = history + [{"role": "user", "content": message}]
 
         for _ in range(MAX_STEPS):
@@ -379,6 +385,7 @@ class Agent:
             "card": tools.card,
             "history": messages,
             "offline": False,
+            "calls": tools.calls,
         }
 
 

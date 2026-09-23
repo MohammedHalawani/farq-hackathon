@@ -326,14 +326,14 @@ const SUGGEST = {
   en: [
     "Dr. Ahmed can't teach Tuesday after 2pm",
     "What if we close room B12?",
-    "Why does BA-L2 have a gap on Monday?",
-    "Why is S01-m1 scheduled where it is?",
+    "Why does BA-L3 have a 3-hour gap on Tuesday?",
+    "Why is meeting S01-m1 scheduled where it is?",
   ],
   ar: [
     "د. أحمد ما يقدر يدرّس الثلاثاء بعد الساعة ٢",
     "ماذا لو أغلقنا قاعة B12؟",
-    "ليش عند BA-L2 فراغ يوم الاثنين؟",
-    "وش وضع جدول د. سارة القحطاني؟",
+    "ليش عند إدارة الأعمال المستوى الثالث فراغ ٣ ساعات يوم الثلاثاء؟",
+    "وش جدول د. سارة القحطاني؟",
   ],
 };
 
