@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from api.state import SESSION
 from core.metrics import ACCESSIBLE_TRANSIT_LIMIT, student_day_meetings
 from core.models import DAYS, DAYS_AR, FIRST_HOUR, N_PERIODS, slot_day, slot_period
+from data.generator import PERSONAS
 
 WEB = Path(__file__).resolve().parent.parent / "web"
 
@@ -88,7 +89,45 @@ def entities() -> dict:
             for s in u.students
         ],
         "featured": _featured(),
+        "personas": _personas(),
     }
+
+
+def _personas() -> list[dict]:
+    """The three pinned faces, with a tag computed from the real data."""
+    u = SESSION.u
+    out = []
+    for eid, (name, name_en, kind) in PERSONAS.items():
+        if kind == "instructor":
+            n = sum(
+                len(u.meetings_of_section[s.id])
+                for s in u.sections
+                if s.instructor_id == eid
+            )
+            out.append({
+                "id": eid, "entity_type": "instructor", "kind": kind,
+                "name": name, "name_en": name_en, "initial": name_en[4:5] or name[0],
+                "tag_en": f"instructor · {n} meetings a week",
+                "tag_ar": f"مدرّس · {n} محاضرة أسبوعيًا",
+            })
+            continue
+        st = u.student_by_id[eid]
+        cohort = f"{st.department}-L{st.level}"
+        if kind == "accessibility":
+            tag_en, tag_ar = "needs accessible rooms", "تحتاج قاعات مهيّأة"
+        else:
+            lower = [
+                s for s in st.section_ids if u.section_by_id[s].level < st.level
+            ]
+            course = u.course_by_id[u.section_by_id[lower[0]].course_id]
+            tag_en = f"repeating {course.name}"
+            tag_ar = f"معيد لمقرر {course.name_ar}"
+        out.append({
+            "id": eid, "entity_type": "student", "kind": kind,
+            "name": name, "name_en": name_en, "initial": name_en[0],
+            "cohort": cohort, "tag_en": tag_en, "tag_ar": tag_ar,
+        })
+    return out
 
 
 def _featured() -> dict:

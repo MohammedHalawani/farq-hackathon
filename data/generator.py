@@ -16,6 +16,15 @@ from core.models import (
 
 SEED = 20260923
 
+# Three pinned faces for the demo. The IDs are fixed because the seed is fixed;
+# each one is chosen because the baseline actually fails them, which
+# tests/test_personas.py checks rather than trusts.
+PERSONAS = {
+    "ST049": ("نورة القحطاني", "Noura Alqahtani", "accessibility"),
+    "ST054": ("فيصل الغامدي", "Faisal Alghamdi", "repeater"),
+    "I01": ("د. أحمد العلي", "Dr. Ahmed Alali", "instructor"),
+}
+
 BUILDINGS = [
     ("B1", "Main Hall", "المبنى الرئيسي"),
     ("B2", "Science Block", "مبنى العلوم"),
@@ -244,6 +253,11 @@ def generate(seed: int = SEED) -> University:
                 is_repeater=is_repeater,
             )
         )
+
+    for st in students:
+        pinned = PERSONAS.get(st.id)
+        if pinned:
+            st.name, st.name_en, st.persona = pinned
 
     counts_by_section: dict[str, int] = {}
     for st in students:

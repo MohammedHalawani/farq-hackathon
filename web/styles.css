@@ -442,6 +442,62 @@ td.num, th.num { text-align: end; font-family: var(--font-mono); font-variant-nu
 .lose { color: var(--color-bad); }
 .best { background: var(--color-accent-soft) !important; }
 
+/* --- persona switcher -------------------------------------------------- */
+.personas {
+  display: flex;
+  gap: var(--space-2xs);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-sm);
+}
+
+.persona {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  text-align: start;
+  background: var(--color-paper-2);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--r-md);
+  padding: var(--space-2xs) var(--space-xs);
+  cursor: pointer;
+  min-height: var(--control-h);
+  transition: border-color var(--dur-short) var(--ease-out),
+              background-color var(--dur-short) var(--ease-out),
+              transform var(--dur-micro) var(--ease-out);
+}
+
+.persona:hover { border-color: var(--color-accent); transform: translateY(-1px); }
+.persona:active { transform: translateY(1px); }
+.persona[aria-pressed="true"] {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+}
+
+.persona__avatar {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font: 600 0.8rem/1 var(--font-display);
+  color: var(--color-accent-ink);
+  background: var(--color-accent);
+}
+
+.persona__avatar--repeater { background: var(--color-warn); }
+.persona__avatar--instructor { background: var(--color-graphite); }
+
+.persona__name { color: var(--color-ink); font-weight: 500; font-size: 0.82rem; line-height: 1.2; }
+
+.persona__tag {
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  letter-spacing: 0.03em;
+  color: var(--color-ink-3);
+  line-height: 1.3;
+}
+
 /* --- timetable grid --------------------------------------------------- */
 .controls {
   display: flex;

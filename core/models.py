@@ -88,6 +88,8 @@ class Student:
     section_ids: list[str]
     needs_accessibility: bool = False
     is_repeater: bool = False
+    name_en: str = ""
+    persona: str = ""
 
 
 @dataclass

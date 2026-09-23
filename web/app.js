@@ -109,7 +109,7 @@ function applyLang() {
   $("#lang-toggle").textContent = state.lang === "ar" ? "English" : "العربية";
   document.querySelectorAll("[data-i18n]").forEach((n) => { n.textContent = t(n.dataset.i18n); });
   $("#chat-input").placeholder = t("placeholder");
-  renderComparison(); renderEntitySelect(); renderGrid(); renderSide(); renderChanges(); renderSuggest();
+  renderComparison(); renderPersonas(); renderEntitySelect(); renderGrid(); renderSide(); renderChanges(); renderSuggest();
 }
 
 /* ---------- tabs ---------- */
@@ -340,6 +340,38 @@ function entityOptions() {
   return e.rooms.map((r) => ({ id: r.id, label: `${r.id} · ${r.capacity}${r.accessible ? " · " + t("abbr_access") : ""}` }));
 }
 
+function renderPersonas() {
+  const host = $("#personas");
+  if (!host || !state.entities) return;
+  host.replaceChildren();
+  for (const p of state.entities.personas || []) {
+    const b = el("button", "persona");
+    b.type = "button";
+    b.setAttribute("aria-pressed", String(state.entId === p.id && state.entType === p.entity_type));
+    const av = el("div", "persona__avatar persona__avatar--" + p.kind, p.initial);
+    av.setAttribute("aria-hidden", "true");
+    b.appendChild(av);
+    const box = el("div");
+    const name = el("div", "persona__name", state.lang === "ar" ? p.name : p.name_en);
+    name.dir = "auto";
+    box.appendChild(name);
+    const tag = el("div", "persona__tag",
+      (state.lang === "ar" ? p.tag_ar : p.tag_en) + (p.cohort ? " · " + p.cohort : ""));
+    tag.dir = "auto";
+    box.appendChild(tag);
+    b.appendChild(box);
+    b.addEventListener("click", () => {
+      state.entType = p.entity_type;
+      state.entId = p.id;
+      $("#ent-type").value = p.entity_type;
+      renderEntitySelect();
+      renderPersonas();
+      loadGrid();
+    });
+    host.appendChild(b);
+  }
+}
+
 function renderEntitySelect() {
   const sel = $("#ent-id");
   if (!state.entities) return;
@@ -360,9 +392,10 @@ $("#ent-type").addEventListener("change", (e) => {
   const featured = state.entities?.featured;
   state.entId = state.entType === "student" ? featured?.needs_accessibility : null;
   renderEntitySelect();
+  renderPersonas();
   loadGrid();
 });
-$("#ent-id").addEventListener("change", (e) => { state.entId = e.target.value; loadGrid(); });
+$("#ent-id").addEventListener("change", (e) => { state.entId = e.target.value; renderPersonas(); loadGrid(); });
 $("#ent-source").addEventListener("change", (e) => { state.source = e.target.value; loadGrid(); });
 
 let gridData = null;
@@ -712,8 +745,12 @@ function renderChanges() {
 (async function boot() {
   state.meta = await api("/api/meta");
   state.entities = await api("/api/entities");
-  state.entId = state.entities.featured.needs_accessibility;
+  // the timetable opens on Noura, who the baseline fails
+  const opening = (state.entities.personas || [])[0];
+  state.entType = opening ? opening.entity_type : "student";
+  state.entId = opening ? opening.id : state.entities.featured.needs_accessibility;
   applyLang();
+  renderPersonas();
   renderEntitySelect();
   await loadGrid();
   await loadChanges();
