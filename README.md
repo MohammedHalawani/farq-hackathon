@@ -12,17 +12,17 @@ rule holds. Every applied change is versioned and can be undone.
 ## Run
 
 ```bash
-uv sync
-
-ollama signin                        # cloud models only, nothing runs locally
+ollama signin                        # once; cloud models only, nothing runs locally
 ollama pull gpt-oss:120b-cloud
-ollama serve &
 
-cp .env.example .env
-uv run uvicorn api.main:app
+./serve.sh                           # or: ./serve.sh 8001
 ```
 
 Open <http://localhost:8000>.
+
+`serve.sh` syncs dependencies, starts Ollama if it is not already up, tells you
+whether the agent model is available, and serves the console. The long form is
+`uv sync && uv run uvicorn api.main:app`.
 
 The first **Run solver** takes about 35 s: three profiles solved in parallel,
 ~30 s each, then cached in `.cache/`. Results are deterministic — the same seed
