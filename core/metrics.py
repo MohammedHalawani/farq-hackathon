@@ -5,7 +5,6 @@ from dataclasses import dataclass
 
 from core.models import (
     N_DAYS,
-    N_PERIODS,
     Assignment,
     University,
     slot_day,
