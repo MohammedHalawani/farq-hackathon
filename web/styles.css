@@ -773,6 +773,19 @@ td.num, th.num { text-align: end; font-family: var(--font-mono); font-variant-nu
 .gap-note li:last-child { border-bottom: none; }
 .gap-note .move__what { color: var(--color-ink); }
 
+/* --- change log effect column ------------------------------------------ */
+.effect {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2xs);
+  font-size: 0.74rem;
+  padding: 1px 0;
+}
+
+.effect__name { color: var(--color-ink-3); }
+.effect__val { font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.effect__more { font-family: var(--font-mono); font-size: 0.66rem; color: var(--color-ink-3); }
+
 /* --- chips ------------------------------------------------------------ */
 .chip {
   display: inline-flex;

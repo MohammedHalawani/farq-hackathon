@@ -21,8 +21,9 @@ const I18N = {
     p_agent: "The agent never edits the schedule. It proposes a structured constraint, you confirm it, and the solver re-solves with the smallest possible change.",
     send: "Send", eyebrow_changes: "Versioned", h_changes: "Change log", undo: "Undo last change",
     metric: "Metric", baseline: "Baseline", apply: "Apply", cancel: "Cancel",
-    applying: "Re-solving…", moved: "meetings moved", version: "Version", when: "When",
-    change: "Change", nothing: "No changes yet.", confirm: "Confirm this change",
+    applying: "Re-solving…", moved: "meetings moved", moved_col: "Moved",
+    version: "Version", when: "When (UTC)",
+    change: "Change", effect: "Effect", nothing: "No changes yet.", confirm: "Confirm this change",
     preview: "What-if preview", apply_this: "Apply this change", placeholder: "Ask, or state a constraint…",
     conflicts_with: "Conflicts with", better: "better", worse: "worse",
     abbr_repeater: "REPEAT", abbr_access: "ACCESS",
@@ -41,8 +42,9 @@ const I18N = {
     p_agent: "المساعد لا يعدّل الجدول بنفسه. يقترح قيدًا منظّمًا، وأنت تؤكّده، ثم يعيد المحرك الحل بأقل تغيير ممكن.",
     send: "إرسال", eyebrow_changes: "بنسخ", h_changes: "سجل التغييرات", undo: "تراجع عن آخر تغيير",
     metric: "المؤشر", baseline: "الأساسي", apply: "تطبيق", cancel: "إلغاء",
-    applying: "إعادة الحل…", moved: "محاضرة نُقلت", version: "النسخة", when: "الوقت",
-    change: "التغيير", nothing: "لا توجد تغييرات بعد.", confirm: "أكّد هذا التغيير",
+    applying: "إعادة الحل…", moved: "محاضرة نُقلت", moved_col: "المنقولة",
+    version: "النسخة", when: "الوقت (UTC)",
+    change: "التغيير", effect: "الأثر", nothing: "لا توجد تغييرات بعد.", confirm: "أكّد هذا التغيير",
     preview: "معاينة ماذا لو", apply_this: "طبّق هذا التغيير", placeholder: "اسأل أو اذكر قيدًا…",
     conflicts_with: "يتعارض مع", better: "أفضل", worse: "أسوأ",
     abbr_repeater: "معيد", abbr_access: "وصول",
@@ -944,14 +946,56 @@ async function loadChanges() {
   renderChanges();
 }
 
+const METRIC_LABEL = (key) => {
+  const row = ROWS.find((r) => r[0] === key);
+  return row ? (state.lang === "ar" ? row[2] : row[1]) : key;
+};
+
+/** The change in the reader's language, from Python's description. */
+function changeLabel(v) {
+  if (!v.describe) {
+    return v.index === 0
+      ? (state.lang === "ar" ? "الجدول الأول" : "Initial schedule")
+      : v.label;
+  }
+  const d = v.describe;
+  const title = state.lang === "ar" ? d.title_ar : d.title_en;
+  const parts = d.rows.map((r) => (state.lang === "ar" && r.value_ar ? r.value_ar : r.value));
+  return `${title} — ${parts.join(" · ")}`;
+}
+
+/** What the change actually did to the schedule. */
+function effectCell(v) {
+  const td = el("td");
+  if (!v.index) {
+    td.appendChild(el("span", "chip", state.lang === "ar" ? "نقطة البداية" : "starting point"));
+    return td;
+  }
+  const changed = Object.entries(v.deltas || {}).filter(([, x]) => x.delta !== 0);
+  if (!changed.length) {
+    td.appendChild(el("span", "chip chip--ok", state.lang === "ar" ? "لا تغيّر" : "no metric moved"));
+    return td;
+  }
+  for (const [key, x] of changed.slice(0, 4)) {
+    const improved = x.better === "higher" ? x.delta > 0 : x.delta < 0;
+    const row = el("div", "effect");
+    row.appendChild(el("span", "effect__name", METRIC_LABEL(key)));
+    row.appendChild(el("span", "effect__val " + (improved ? "delta-up" : "delta-down"),
+      `${fmt(key, x.before)} → ${fmt(key, x.after)}`));
+    td.appendChild(row);
+  }
+  if (changed.length > 4) td.appendChild(el("div", "effect__more", `+${changed.length - 4}`));
+  return td;
+}
+
 function renderChanges() {
   const table = $("#changes");
   if (!table) return;
   table.replaceChildren();
   const thead = el("thead");
   const hr = el("tr");
-  [t("version"), t("change"), t("when"), t("moved")].forEach((h, i) =>
-    hr.appendChild(el("th", i === 3 ? "num" : null, h)));
+  [t("version"), t("change"), t("effect"), t("when"), t("moved_col")].forEach((h, i) =>
+    hr.appendChild(el("th", i === 4 ? "num" : null, h)));
   thead.appendChild(hr);
   table.appendChild(thead);
   const tb = el("tbody");
@@ -959,17 +1003,20 @@ function renderChanges() {
   if (!rows.length) {
     const tr = el("tr");
     const td = el("td", "empty", t("nothing"));
-    td.colSpan = 4;
+    td.colSpan = 5;
     tr.appendChild(td);
     tb.appendChild(tr);
   }
-  for (const v of rows) {
+  for (const v of [...rows].reverse()) {
     const tr = el("tr");
     tr.appendChild(el("td", "num", "#" + v.index));
-    const what = el("td", "metric-name", v.label);
+    const what = el("td", "metric-name", changeLabel(v));
     what.dir = "auto";
     tr.appendChild(what);
-    tr.appendChild(el("td", "mono", v.at.replace("T", " ").replace("+00:00", "")));
+    tr.appendChild(effectCell(v));
+    const when = el("td", "mono", v.at.replace("T", " ").replace("+00:00", ""));
+    when.title = state.lang === "ar" ? "بتوقيت UTC" : "UTC";
+    tr.appendChild(when);
     tr.appendChild(el("td", "num", v.index ? String(v.moved_count) : "—"));
     tb.appendChild(tr);
   }

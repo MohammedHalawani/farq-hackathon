@@ -255,10 +255,14 @@ class Session:
         return out
 
     def version_payload(self, v: Version) -> dict:
+        from agent.describe import describe
+
         return {
             "index": v.index,
             "label": v.label,
             "constraint": v.constraint,
+            # both languages, built in Python, so the log reads in Arabic too
+            "describe": describe(self.u, v.constraint) if v.constraint else None,
             "at": v.at,
             "metrics": v.metrics,
             "deltas": v.deltas,
