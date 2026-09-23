@@ -730,6 +730,47 @@ td.num, th.num { text-align: end; font-family: var(--font-mono); font-variant-nu
 
 .move__path b { color: var(--color-accent); font-weight: 500; }
 
+/* --- gap explanation overlay ------------------------------------------- */
+.cell--gap {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--color-warn-soft) 0 6px,
+    var(--color-paper) 6px 12px
+  );
+  box-shadow: inset 0 0 0 1px var(--color-warn-line);
+}
+
+.blocked {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  line-height: 1.3;
+  color: var(--color-warn);
+  padding: 2px 0;
+}
+
+.blocked__icon { flex: none; font-size: 0.7rem; line-height: 1.15; }
+.blocked--clash { color: var(--color-bad); }
+.blocked--pointless { color: var(--color-ink-3); }
+
+.gap-note {
+  padding: var(--space-3xs) var(--space-sm) var(--space-xs);
+  margin: 0;
+  list-style: none;
+}
+
+.gap-note li {
+  display: grid;
+  gap: 2px;
+  padding: var(--space-2xs) 0;
+  border-bottom: 1px solid var(--color-rule);
+}
+
+.gap-note li:last-child { border-bottom: none; }
+.gap-note .move__what { color: var(--color-ink); }
+
 /* --- chips ------------------------------------------------------------ */
 .chip {
   display: inline-flex;

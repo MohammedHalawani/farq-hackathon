@@ -193,6 +193,7 @@ class Tools:
         self.dry_run = dry_run
         self.calls: list[tuple[str, dict]] = []
         self.lookups: list[dict] = []
+        self.overlay: dict | None = None
 
     def run(self, name: str, args: dict) -> dict:
         self.calls.append((name, args))
@@ -312,7 +313,18 @@ class Tools:
     def t_explain_gap(self, entity_id: str, day: int) -> dict:
         if self.s.current is None:
             return {"error": "No schedule yet. Run the solver first."}
-        return explain_gap(self.s.u, self.s.current, self.s.constraints, entity_id, day)
+        out = explain_gap(self.s.u, self.s.current, self.s.constraints, entity_id, day)
+        if "error" not in out:
+            self.overlay = {
+                "kind": "gap",
+                "entity_type": "student" if entity_id in self.s.u.student_by_id else "cohort",
+                "entity_id": entity_id,
+                "day": day,
+                "day_name": out["day"],
+                "gap_hours": out.get("gap_hours", []),
+                "blocked": _blocked_moves(out.get("moves_considered", [])),
+            }
+        return out
 
     def t_explain_meeting(self, meeting_id: str) -> dict:
         if self.s.current is None:
@@ -363,6 +375,55 @@ class Tools:
                 )
 
 
+BLOCK_ICONS = [
+    ("already teaches", "instructor", "instructor busy", "المدرّس مشغول"),
+    ("is not available", "unavailable", "not available", "غير متاح"),
+    ("confirmed rule", "rule", "a confirmed rule", "قاعدة مؤكدة"),
+    ("no room", "room", "no free room", "لا توجد قاعة"),
+    ("every accessible room", "access", "no accessible room", "لا قاعة مهيّأة"),
+    ("all ", "room", "no free room", "لا توجد قاعة"),
+    ("different days", "days", "same section, same day", "نفس الشعبة بنفس اليوم"),
+]
+
+
+def _classify(reason: str) -> tuple[str, str, str]:
+    for needle, kind, en, ar in BLOCK_ICONS:
+        if needle in reason:
+            return kind, en, ar
+    return "other", reason[:40], reason[:40]
+
+
+def _blocked_moves(moves: list[dict]) -> list[dict]:
+    """One row per attempted move, with why it failed in a few words."""
+    out = []
+    for m in moves:
+        if m["blocked_by"]:
+            kind, en, ar = _classify(m["blocked_by"][0])
+            detail_en, detail_ar = m["blocked_by"][0], m["blocked_by"][0]
+        else:
+            kind = "cost"
+            en = ar = ""
+            detail_en = detail_ar = m.get("verdict", "")
+            if "clash with" in detail_en:
+                kind, en, ar = "clash", "students would clash", "سيتعارض طلاب"
+            else:
+                kind, en, ar = "pointless", "would not help", "لن يفيد"
+        out.append({
+            "meeting_id": m["meeting_id"],
+            "section_id": m["section_id"],
+            "course": m["course"],
+            "course_ar": m["course_ar"],
+            "from_hour": m["from_hour"],
+            "to_hour": m["to_hour"],
+            "kind": kind,
+            "label_en": en,
+            "label_ar": ar,
+            "detail": detail_en,
+            "detail_ar": detail_ar,
+        })
+    return out
+
+
 def _recent(history: list) -> list:
     """Keep the tail of the conversation, cut at a clean user turn so a tool
     result is never separated from the call that produced it."""
@@ -409,7 +470,8 @@ class Agent:
         ok, why = self.available()
         if not ok:
             return {"reply": why, "card": None, "history": history, "offline": True,
-                    "calls": [], "lookups": [], "tools": tools or Tools(session)}
+                    "calls": [], "lookups": [], "tools": tools or Tools(session),
+                    "overlay": None}
 
         tools = tools or Tools(session)
         messages = _recent(history) + [{"role": "user", "content": message}]
@@ -470,6 +532,7 @@ class Agent:
             "calls": tools.calls,
             "lookups": tools.lookups,
             "tools": tools,
+            "overlay": tools.overlay,
         }
 
 

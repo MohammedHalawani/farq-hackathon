@@ -92,7 +92,7 @@ const pctLabel = (v) => (v < 10 ? Number(v).toFixed(1) : String(Math.round(v))) 
 const state = {
   lang: "en", meta: null, entities: null, comparison: null,
   entType: "student", entId: null, source: "baseline", pending: null, busy: false,
-  lastApplied: null, movedMeetings: new Set(), trace: [], moves: [],
+  lastApplied: null, movedMeetings: new Set(), trace: [], moves: [], overlay: null,
 };
 
 const t = (k) => I18N[state.lang][k] || k;
@@ -450,6 +450,10 @@ function buildGrid(host, data, opts = {}) {
       const list = cells[`${d}:${p}`] || [];
       const gh = ghosts[`${d}:${p}`] || [];
       if (!list.length && !gh.length) box.classList.add("cell--empty");
+      if (opts.overlay && opts.overlay.day === d
+          && opts.overlay.gap_hours.includes(state.meta.periods[p])) {
+        box.classList.add("cell--gap");
+      }
       for (const g of gh) {
         const ghost = el("div", "ev ev--ghost");
         const t = el("div", "ev__title", state.lang === "ar" ? g.course_ar : g.course);
@@ -488,6 +492,16 @@ function buildGrid(host, data, opts = {}) {
         }
         if (opts.why && !problems.length) {
           ev.appendChild(el("span", "ok-mark", "\u2705 " + (state.lang === "ar" ? "سليم" : "clear")));
+        }
+        for (const b of (opts.overlay?.blocked ?? []).filter((x) => x.meeting_id === c.meeting_id)) {
+          const row = el("div", "blocked blocked--" + b.kind);
+          const ic = el("span", "blocked__icon", BLOCK_ICON[b.kind] || BLOCK_ICON.other);
+          ic.setAttribute("aria-hidden", "true");
+          row.appendChild(ic);
+          row.appendChild(el("span", null,
+            `${b.to_hour} · ${state.lang === "ar" ? b.label_ar : b.label_en}`));
+          box.classList.add("cell--try");
+          ev.appendChild(row);
         }
         box.appendChild(ev);
       }
@@ -534,7 +548,7 @@ function renderGrid() {
     return;
   }
 
-  buildGrid($("#grid"), gridData);
+  buildGrid($("#grid"), gridData, { overlay: state.overlay });
   const flags = $("#ent-flags");
   flags.replaceChildren();
   if (gridData) {
@@ -617,6 +631,17 @@ async function sendMessage(text) {
     }
     state.trace = out.trace || [];
     renderTrace(state.trace);
+    if (out.overlay) {
+      state.overlay = out.overlay;
+      state.entType = out.overlay.entity_type;
+      state.entId = out.overlay.entity_id;
+      if (state.source === "compare") state.source = "current";
+      $("#ent-source").value = state.source;
+      $("#ent-type").value = state.entType;
+      renderEntitySelect();
+      renderPersonas();
+      await loadGrid();
+    }
     renderSide();
   } catch (e) {
     pending.querySelector(".msg__body").textContent = e.message;
@@ -663,6 +688,13 @@ function cardRows(describe) {
 }
 
 const STATUS_MARK = { ok: "\u2713", warn: "!", wait: "", fail: "\u2715" };
+
+// icons for why a class could not move into a gap
+const BLOCK_ICON = {
+  instructor: "\u{1F464}", unavailable: "\u{1F6AB}", rule: "\u{1F4CB}",
+  room: "\u{1F6AA}", access: "\u267F", days: "\u{1F4C5}",
+  clash: "\u26A0", pointless: "\u2014", other: "\u2022",
+};
 
 /** Reveal the tracker one step at a time so a viewer can follow it. */
 function renderTrace(trace, { animate = true } = {}) {
@@ -715,6 +747,7 @@ function renderSide() {
       ? "لا يوجد تغيير بانتظار التأكيد."
       : "No change is waiting for confirmation."));
     host.appendChild(card);
+    if (state.overlay) host.appendChild(gapCard(state.overlay));
     if (state.lastApplied) host.appendChild(appliedCard(state.lastApplied));
     if ((state.moves || []).length) host.appendChild(movesCard(state.moves));
     return;
@@ -755,8 +788,32 @@ function renderSide() {
   actions.appendChild(cancel);
   card.appendChild(actions);
   host.appendChild(card);
+  if (state.overlay) host.appendChild(gapCard(state.overlay));
   if (state.lastApplied) host.appendChild(appliedCard(state.lastApplied));
   if ((state.moves || []).length) host.appendChild(movesCard(state.moves));
+}
+
+function gapCard(overlay) {
+  const card = el("div", "card");
+  const head = el("div", "card__head");
+  head.appendChild(el("h3", null, state.lang === "ar" ? "لماذا الفراغ موجود" : "Why the gap is there"));
+  head.appendChild(el("span", "chip chip--warn",
+    `${overlay.entity_id} · ${overlay.gap_hours.join(", ")}`));
+  card.appendChild(head);
+  const list = el("ul", "gap-note");
+  for (const b of overlay.blocked) {
+    const li = el("li");
+    const what = el("div", "move__what",
+      `${BLOCK_ICON[b.kind] || "•"} ${state.lang === "ar" ? b.course_ar : b.course} · ${b.from_hour} → ${b.to_hour}`);
+    what.dir = "auto";
+    li.appendChild(what);
+    const why = el("div", "move__path", state.lang === "ar" ? b.detail_ar : b.detail);
+    why.dir = "auto";
+    li.appendChild(why);
+    list.appendChild(li);
+  }
+  card.appendChild(list);
+  return card;
 }
 
 function movesCard(moves) {

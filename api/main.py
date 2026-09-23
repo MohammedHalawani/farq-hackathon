@@ -218,12 +218,17 @@ def _meetings_for(entity_type: str, entity_id: str) -> list[str]:
             raise HTTPException(404, "Unknown student")
         return [m.id for sid in st.section_ids for m in u.meetings_of_section[sid]]
     if entity_type == "cohort":
-        return [
-            m.id
-            for s in u.sections
-            if entity_id in u.serving_cohorts[s.id]
-            for m in u.meetings_of_section[s.id]
-        ]
+        # everything this cohort's students actually attend, which is what
+        # explain_gap and problem_labels reason over — including the extra
+        # lower-level course a repeater carries
+        sections: list[str] = []
+        for st in u.students:
+            if f"{st.department}-L{st.level}" != entity_id:
+                continue
+            for sid in st.section_ids:
+                if sid not in sections:
+                    sections.append(sid)
+        return [m.id for sid in sorted(sections) for m in u.meetings_of_section[sid]]
     if entity_type == "instructor":
         return [
             m.id
@@ -305,6 +310,7 @@ def agent_message(body: Message) -> dict:
             "card": out["card"],
             "offline": out["offline"],
             "trace": trace,
+            "overlay": out.get("overlay"),
         }
 
 
