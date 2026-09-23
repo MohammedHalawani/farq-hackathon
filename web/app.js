@@ -92,7 +92,7 @@ const pctLabel = (v) => (v < 10 ? Number(v).toFixed(1) : String(Math.round(v))) 
 const state = {
   lang: "en", meta: null, entities: null, comparison: null,
   entType: "student", entId: null, source: "baseline", pending: null, busy: false,
-  lastApplied: null, movedMeetings: new Set(),
+  lastApplied: null, movedMeetings: new Set(), trace: [],
 };
 
 const t = (k) => I18N[state.lang][k] || k;
@@ -110,6 +110,7 @@ function applyLang() {
   document.querySelectorAll("[data-i18n]").forEach((n) => { n.textContent = t(n.dataset.i18n); });
   $("#chat-input").placeholder = t("placeholder");
   renderComparison(); renderPersonas(); renderEntitySelect(); renderGrid(); renderSide(); renderChanges(); renderSuggest();
+  renderTrace(state.trace, { animate: false });
 }
 
 /* ---------- tabs ---------- */
@@ -589,6 +590,8 @@ async function sendMessage(text) {
     });
     pending.querySelector(".msg__body").textContent = out.reply;
     state.pending = out.card || null;
+    state.trace = out.trace || [];
+    renderTrace(state.trace);
     renderSide();
   } catch (e) {
     pending.querySelector(".msg__body").textContent = e.message;
@@ -632,6 +635,48 @@ function cardRows(describe) {
     dl.appendChild(row);
   }
   return dl;
+}
+
+const STATUS_MARK = { ok: "\u2713", warn: "!", wait: "", fail: "\u2715" };
+
+/** Reveal the tracker one step at a time so a viewer can follow it. */
+function renderTrace(trace, { animate = true } = {}) {
+  const host = $("#tracker");
+  if (!host) return;
+  host.replaceChildren();
+  if (!trace || !trace.length) {
+    host.hidden = true;
+    return;
+  }
+  host.hidden = false;
+  const card = el("div", "card");
+  const head = el("div", "card__head");
+  head.appendChild(el("h3", null, state.lang === "ar" ? "ما فعله المساعد" : "What the agent did"));
+  card.appendChild(head);
+  const list = el("ol", "tracker");
+  card.appendChild(list);
+  host.appendChild(card);
+
+  const paint = (t) => {
+    const li = el("li", "tstep tstep--" + t.status);
+    const dot = el("div", "tstep__dot", STATUS_MARK[t.status] || "");
+    dot.setAttribute("aria-hidden", "true");
+    li.appendChild(dot);
+    const body = el("div");
+    body.appendChild(el("div", "tstep__name", state.lang === "ar" ? t.step_ar : t.step));
+    const detail = el("div", "tstep__detail", state.lang === "ar" ? t.detail_ar : t.detail);
+    detail.dir = "auto";
+    body.appendChild(detail);
+    li.appendChild(body);
+    if (animate && !REDUCED.matches) li.classList.add("reveal");
+    list.appendChild(li);
+  };
+
+  if (!animate || REDUCED.matches) {
+    trace.forEach(paint);
+    return;
+  }
+  trace.forEach((t, i) => setTimeout(() => paint(t), i * 300));
 }
 
 function renderSide() {
@@ -715,6 +760,8 @@ async function applyPending(btn) {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ constraint: state.pending.constraint }),
     });
+    state.trace = (state.trace || []).concat(out.trace || []);
+    renderTrace(out.trace || [], { animate: true });
     if (!out.ok) {
       addMessage("agent", (state.lang === "ar" ? "تعذّر التطبيق: " : "Could not apply: ") +
         out.message + " — " + t("conflicts_with") + ": " +

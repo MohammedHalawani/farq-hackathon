@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from agent.trace import for_apply, for_message
 from api.state import SESSION
 from core.metrics import (
     ACCESSIBLE_TRANSIT_LIMIT,
@@ -294,7 +295,17 @@ def agent_message(body: Message) -> dict:
         SESSION.history = out["history"]
         SESSION.pending = out["card"]
         SESSION.chat.append({"role": "agent", "text": out["reply"]})
-        return {"reply": out["reply"], "card": out["card"], "offline": out["offline"]}
+        trace = (
+            []
+            if out["offline"]
+            else for_message(SESSION.u, body.message, out["tools"], out["card"])
+        )
+        return {
+            "reply": out["reply"],
+            "card": out["card"],
+            "offline": out["offline"],
+            "trace": trace,
+        }
 
 
 @app.get("/api/agent/state")
@@ -326,6 +337,7 @@ def apply_change(body: ApplyBody) -> dict:
         result = SESSION.apply_constraint(c, short_label(SESSION.u, c))
         if result["ok"]:
             SESSION.pending = None
+        result["trace"] = for_apply(SESSION.u, c, result, len(SESSION.u.meetings))
         return result
 
 

@@ -408,7 +408,7 @@ class Agent:
         ok, why = self.available()
         if not ok:
             return {"reply": why, "card": None, "history": history, "offline": True,
-                    "calls": []}
+                    "calls": [], "lookups": [], "tools": tools or Tools(session)}
 
         tools = tools or Tools(session)
         messages = _recent(history) + [{"role": "user", "content": message}]
@@ -468,6 +468,7 @@ class Agent:
             "offline": False,
             "calls": tools.calls,
             "lookups": tools.lookups,
+            "tools": tools,
         }
 
 

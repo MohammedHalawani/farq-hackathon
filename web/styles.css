@@ -634,6 +634,66 @@ td.num, th.num { text-align: end; font-family: var(--font-mono); font-variant-nu
   .split { grid-template-columns: minmax(0, 1fr); }
 }
 
+/* --- agent step tracker ------------------------------------------------ */
+.tracker { padding: var(--space-xs) var(--space-sm) var(--space-sm); margin: 0; }
+
+.tstep {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: var(--space-2xs);
+  position: relative;
+  padding-bottom: var(--space-xs);
+}
+
+.tstep:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: 7px;
+  top: 16px;
+  bottom: 0;
+  width: 1px;
+  background: var(--color-rule-2);
+}
+
+.tstep__dot {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 2px solid var(--color-rule-2);
+  background: var(--color-paper-2);
+  margin-top: 2px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  font: 600 8px/1 var(--font-mono);
+  color: var(--color-paper-2);
+}
+
+.tstep--ok .tstep__dot { border-color: var(--color-good); background: var(--color-good); }
+.tstep--warn .tstep__dot { border-color: var(--color-warn-line); background: var(--color-warn-line); }
+.tstep--wait .tstep__dot { border-color: var(--color-accent); background: var(--color-paper-2); }
+.tstep--fail .tstep__dot { border-color: var(--color-bad); background: var(--color-bad); }
+
+.tstep__name {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-ink);
+}
+
+.tstep--fail .tstep__name { color: var(--color-bad); }
+
+.tstep__detail {
+  font-size: 0.76rem;
+  color: var(--color-ink-3);
+  line-height: 1.4;
+  margin-top: 1px;
+  overflow-wrap: anywhere;
+}
+
+.tstep--fail .tstep__detail { color: var(--color-bad); }
+
 /* --- chips ------------------------------------------------------------ */
 .chip {
   display: inline-flex;
@@ -731,6 +791,7 @@ td.num, th.num { text-align: end; font-family: var(--font-mono); font-variant-nu
 .suggest button:disabled { opacity: .55; cursor: not-allowed; }
 
 .side { display: flex; flex-direction: column; gap: var(--space-sm); min-width: 0; }
+.side > div { display: flex; flex-direction: column; gap: var(--space-sm); }
 
 .confirm__rows { padding: var(--space-3xs) var(--space-sm) var(--space-xs); margin: 0; }
 
