@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Jadwal — Scheduling Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+
+<header class="bar">
+  <div class="wordmark"><span class="tick" aria-hidden="true"></span><h1>Jadwal</h1></div>
+  <nav class="tabs" role="tablist">
+    <button class="tab" role="tab" aria-selected="true" data-panel="generate" data-i18n="tab_generate">Compare</button>
+    <button class="tab" role="tab" aria-selected="false" data-panel="timetable" data-i18n="tab_timetable">Timetable</button>
+    <button class="tab" role="tab" aria-selected="false" data-panel="agent" data-i18n="tab_agent">Agent</button>
+    <button class="tab" role="tab" aria-selected="false" data-panel="changes" data-i18n="tab_changes">Change log</button>
+  </nav>
+  <div class="bar-end">
+    <span id="bar-status" class="chip"></span>
+    <button class="btn btn--sm" id="lang-toggle" type="button">العربية</button>
+    <button class="btn btn--primary btn--sm" id="run" type="button" data-i18n="run">Run solver</button>
+  </div>
+</header>
+
+<main>
+  <!-- 1 · Compare -->
+  <section class="panel is-active" id="panel-generate" role="tabpanel">
+    <div class="head">
+      <div>
+        <p class="eyebrow" data-i18n="eyebrow_compare">Baseline vs optimiser</p>
+        <h2 data-i18n="h_compare">What the solver changes</h2>
+        <p data-i18n="p_compare">The baseline mimics current practice: it avoids instructor, room and cohort clashes and ignores everything else. The optimiser treats accessibility as a hard requirement.</p>
+      </div>
+    </div>
+    <div id="headline"></div>
+    <div class="card">
+      <div class="card__head">
+        <h3 data-i18n="h_metrics">Every metric, side by side</h3>
+        <span class="eyebrow" id="solve-note"></span>
+      </div>
+      <div class="scroll"><table id="compare"><tbody><tr><td class="empty" data-i18n="empty_compare">Run the solver to compare.</td></tr></tbody></table></div>
+    </div>
+  </section>
+
+  <!-- 2 · Timetable -->
+  <section class="panel" id="panel-timetable" role="tabpanel">
+    <div class="head">
+      <div>
+        <p class="eyebrow" data-i18n="eyebrow_timetable">Weekly grid</p>
+        <h2 data-i18n="h_timetable">Timetable</h2>
+      </div>
+    </div>
+    <div class="controls">
+      <select id="ent-type" aria-label="Entity type">
+        <option value="student" data-i18n="opt_student">Student</option>
+        <option value="cohort" data-i18n="opt_cohort">Cohort</option>
+        <option value="instructor" data-i18n="opt_instructor">Instructor</option>
+        <option value="room" data-i18n="opt_room">Room</option>
+      </select>
+      <select id="ent-id" aria-label="Entity"></select>
+      <select id="ent-source" aria-label="Schedule">
+        <option value="baseline" data-i18n="opt_baseline">Baseline</option>
+        <option value="current" data-i18n="opt_optimised">Optimised</option>
+      </select>
+      <span id="ent-flags"></span>
+    </div>
+    <div class="grid-wrap"><div class="grid" id="grid"></div></div>
+    <div class="legend">
+      <span><i class="swatch swatch--bad" aria-hidden="true"></i><span data-i18n="legend_conflict">Clash</span></span>
+      <span><i class="swatch swatch--warn" aria-hidden="true"></i><span data-i18n="legend_access">Accessibility violation</span></span>
+      <span><i class="swatch swatch--ok" aria-hidden="true"></i><span data-i18n="legend_ok">Scheduled</span></span>
+    </div>
+  </section>
+
+  <!-- 3 · Agent -->
+  <section class="panel" id="panel-agent" role="tabpanel">
+    <div class="head">
+      <div>
+        <p class="eyebrow" data-i18n="eyebrow_agent">Arabic or English</p>
+        <h2 data-i18n="h_agent">Ask for a change</h2>
+        <p data-i18n="p_agent">The agent never edits the schedule. It proposes a structured constraint, you confirm it, and the solver re-solves with the smallest possible change.</p>
+      </div>
+    </div>
+    <div class="agent">
+      <div class="card chat">
+        <div class="chat__log" id="chat-log"></div>
+        <div class="suggest" id="suggest"></div>
+        <form class="chat__form" id="chat-form">
+          <input type="text" id="chat-input" autocomplete="off" dir="auto" placeholder="Ask, or state a constraint…" />
+          <button class="btn btn--primary" type="submit" data-i18n="send">Send</button>
+        </form>
+      </div>
+      <div class="side" id="side"></div>
+    </div>
+  </section>
+
+  <!-- 4 · Change log -->
+  <section class="panel" id="panel-changes" role="tabpanel">
+    <div class="head">
+      <div>
+        <p class="eyebrow" data-i18n="eyebrow_changes">Versioned</p>
+        <h2 data-i18n="h_changes">Change log</h2>
+      </div>
+      <button class="btn" id="undo" type="button" data-i18n="undo">Undo last change</button>
+    </div>
+    <div class="card"><div class="scroll"><table id="changes"></table></div></div>
+  </section>
+</main>
+
+<script src="/app.js"></script>
+</body>
+</html>
