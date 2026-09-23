@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from itertools import zip_longest
 
 from ortools.sat.python import cp_model
 
 from core.metrics import ACCESSIBLE_TRANSIT_LIMIT, COMFORT_WALK_LIMIT
+from core.warmstart import build as greedy_start
 from core.models import (
     N_DAYS,
     N_PERIODS,
@@ -44,6 +46,11 @@ PROFILES = {
 }
 
 MOVE_PENALTY = 60
+import os
+
+_TRACE = bool(os.environ.get("SOLVER_TRACE"))
+ROUND_DET_TIME = 0.8
+DEFAULT_ROUNDS = 10  # per-neighbourhood budget; single-worker, so reproducible
 
 
 @dataclass
@@ -125,31 +132,21 @@ def _allowed_rooms(u: University, constraints: list[dict]) -> dict[str, list[str
     return allowed
 
 
-def solve(
+def _build_model(
     u: University,
-    profile: str = "balanced",
-    constraints: list[dict] | None = None,
-    base: Assignment | None = None,
-    time_limit: float = 30.0,
-    minimal_change: bool = False,
-) -> SolveResult:
-    constraints = constraints or []
+    profile: str,
+    constraints: list[dict],
+    allowed_slots: dict[str, set[int]],
+    allowed_rooms: dict[str, list[str]],
+    base: Assignment | None,
+    minimal_change: bool,
+) -> "_Model":
     w = PROFILES[profile]
-
-    allowed_slots = _allowed_slots(u, constraints)
-    allowed_rooms = _allowed_rooms(u, constraints)
-
-    for m in u.meetings:
-        if not allowed_slots[m.id] or not allowed_rooms[m.id]:
-            return SolveResult(
-                "INFEASIBLE",
-                None,
-                None,
-                0.0,
-                profile,
-                message=f"No slot or room left for meeting {m.id}",
-            )
-
+    max_daily = {
+        c["instructor_id"]: c["max_classes"]
+        for c in constraints
+        if c["type"] == "instructor_max_daily"
+    }
     model = cp_model.CpModel()
     building_ids = [b.id for b in u.buildings]
 
@@ -219,21 +216,46 @@ def solve(
 
     groups = student_groups(u)
 
+    adj_cache: dict[tuple[str, str], cp_model.IntVar] = {}
+
     def adjacency(m1: str, m2: str) -> cp_model.IntVar:
-        """True when m2 sits in the period right after m1 on the same day."""
-        key = (m1, m2)
+        """True when the two meetings sit in back-to-back periods of one day."""
+        key = (m1, m2) if m1 < m2 else (m2, m1)
         if key in adj_cache:
             return adj_cache[key]
-        sd = model.NewBoolVar(f"sd_{m1}_{m2}")
-        model.Add(day_var[m1] != day_var[m2]).OnlyEnforceIf(sd.Not())
-        nx = model.NewBoolVar(f"nx_{m1}_{m2}")
-        model.Add(per_var[m2] - per_var[m1] != 1).OnlyEnforceIf(nx.Not())
-        a = model.NewBoolVar(f"adj_{m1}_{m2}")
-        model.Add(a >= sd + nx - 1)
+        a1, a2 = key
+        sd = model.NewBoolVar(f"sd_{a1}_{a2}")
+        model.Add(day_var[a1] != day_var[a2]).OnlyEnforceIf(sd.Not())
+        gap_abs = model.NewIntVar(0, N_PERIODS - 1, f"pd_{a1}_{a2}")
+        model.AddAbsEquality(gap_abs, per_var[a1] - per_var[a2])
+        nb = model.NewBoolVar(f"nb_{a1}_{a2}")
+        model.Add(gap_abs != 1).OnlyEnforceIf(nb.Not())
+        a = model.NewBoolVar(f"adj_{a1}_{a2}")
+        model.Add(a >= sd + nb - 1)
         adj_cache[key] = a
         return a
 
-    adj_cache: dict[tuple[str, str], cp_model.IntVar] = {}
+    # period of each meeting on a given day, or a sentinel when it is elsewhere
+    pe_min: dict[tuple[str, int], cp_model.IntVar] = {}
+    pe_max: dict[tuple[str, int], cp_model.IntVar] = {}
+    for m in u.meetings:
+        for d in range(N_DAYS):
+            here = [v for s, v in y[m.id].items() if slot_day(s) == d]
+            lo = model.NewIntVar(0, N_PERIODS - 1, f"lo_{m.id}_{d}")
+            hi = model.NewIntVar(0, N_PERIODS - 1, f"hi_{m.id}_{d}")
+            if not here:
+                model.Add(lo == N_PERIODS - 1)
+                model.Add(hi == 0)
+            else:
+                on = model.NewBoolVar(f"on_{m.id}_{d}")
+                model.Add(sum(here) == 1).OnlyEnforceIf(on)
+                model.Add(sum(here) == 0).OnlyEnforceIf(on.Not())
+                model.Add(lo == per_var[m.id]).OnlyEnforceIf(on)
+                model.Add(lo == N_PERIODS - 1).OnlyEnforceIf(on.Not())
+                model.Add(hi == per_var[m.id]).OnlyEnforceIf(on)
+                model.Add(hi == 0).OnlyEnforceIf(on.Not())
+            pe_min[(m.id, d)] = lo
+            pe_max[(m.id, d)] = hi
     penalties: list[tuple[int, cp_model.IntVar]] = []
 
     def group_meetings(g: _Group) -> list[str]:
@@ -261,52 +283,35 @@ def solve(
             for m2 in mids:
                 if m1 >= m2:
                     continue
-                for a, b in ((m1, m2), (m2, m1)):
-                    adj = adjacency(a, b)
-                    far = model.NewBoolVar(f"far_{a}_{b}")
-                    hit = False
-                    for b1, v1 in in_building[a].items():
-                        for b2, v2 in in_building[b].items():
-                            mins = u.walk[(b1, b2)]
-                            if mins > COMFORT_WALK_LIMIT:
-                                model.AddBoolOr([far, adj.Not(), v1.Not(), v2.Not()])
-                                hit = True
-                            # --- hard: accessibility transit limit
-                            if g.needs_accessibility and mins > ACCESSIBLE_TRANSIT_LIMIT:
-                                model.AddBoolOr([adj.Not(), v1.Not(), v2.Not()])
-                    if hit:
-                        penalties.append((w["walk"] * g.size, far))
+                if u.meeting_by_id[m1].section_id == u.meeting_by_id[m2].section_id:
+                    continue  # the two meetings of a section are on different days
+                adj = adjacency(m1, m2)
+                far = model.NewBoolVar(f"far_{m1}_{m2}")
+                hit = False
+                for b1, v1 in in_building[m1].items():
+                    for b2, v2 in in_building[m2].items():
+                        mins = u.walk[(b1, b2)]
+                        if mins > COMFORT_WALK_LIMIT:
+                            model.AddBoolOr([far, adj.Not(), v1.Not(), v2.Not()])
+                            hit = True
+                        # --- hard: accessibility transit limit
+                        if g.needs_accessibility and mins > ACCESSIBLE_TRANSIT_LIMIT:
+                            model.AddBoolOr([adj.Not(), v1.Not(), v2.Not()])
+                if hit:
+                    penalties.append((w["walk"] * g.size, far))
 
         # --- soft: idle slots between the first and last class of a day
-        occ: dict[int, cp_model.IntVar] = {}
-        for s in range(N_SLOTS):
-            here = [y[m][s] for m in mids if s in y[m]]
-            if not here:
-                continue
-            o = model.NewBoolVar(f"occ_{id(g)}_{s}")
-            model.AddMaxEquality(o, here)
-            occ[s] = o
         for d in range(N_DAYS):
-            day_occ = [occ.get(slot_id(d, p)) for p in range(N_PERIODS)]
-            pre: list[cp_model.IntVar | None] = [None] * N_PERIODS
-            post: list[cp_model.IntVar | None] = [None] * N_PERIODS
-            run = None
-            for p in range(N_PERIODS):
-                run = _or_var(model, run, day_occ[p], f"pre_{id(g)}_{d}_{p}")
-                pre[p] = run
-            run = None
-            for p in reversed(range(N_PERIODS)):
-                run = _or_var(model, run, day_occ[p], f"post_{id(g)}_{d}_{p}")
-                post[p] = run
-            for p in range(1, N_PERIODS - 1):
-                if pre[p - 1] is None or post[p + 1] is None:
-                    continue
-                gap = model.NewBoolVar(f"gap_{id(g)}_{d}_{p}")
-                lits = [gap, pre[p - 1].Not(), post[p + 1].Not()]
-                if day_occ[p] is not None:
-                    lits.append(day_occ[p])
-                model.AddBoolOr(lits)
-                penalties.append((w["idle"] * g.size, gap))
+            first = model.NewIntVar(0, N_PERIODS - 1, f"first_{id(g)}_{d}")
+            last = model.NewIntVar(0, N_PERIODS - 1, f"last_{id(g)}_{d}")
+            model.AddMinEquality(first, [pe_min[(mid, d)] for mid in mids])
+            model.AddMaxEquality(last, [pe_max[(mid, d)] for mid in mids])
+            count = sum(
+                y[mid][s] for mid in mids for s in y[mid] if slot_day(s) == d
+            )
+            idle = model.NewIntVar(0, N_PERIODS, f"idle_{id(g)}_{d}")
+            model.Add(idle >= last - first + 1 - count)
+            penalties.append((w["idle"] * g.size, idle))
 
     # --- soft: room waste
     waste_terms = []
@@ -319,11 +324,6 @@ def solve(
     model.Add(waste == sum(waste_terms))
 
     # --- soft: instructor peak load, hard: instructor_max_daily
-    max_daily = {
-        c["instructor_id"]: c["max_classes"]
-        for c in constraints
-        if c["type"] == "instructor_max_daily"
-    }
     peak_terms = []
     for inst, mids in by_instructor.items():
         peak = model.NewIntVar(0, len(mids), f"peak_{inst}")
@@ -336,7 +336,7 @@ def solve(
                 model.Add(count <= max_daily[inst])
         peak_terms.append(peak)
 
-    obj = [weight * var for weight, var in penalties]
+    obj: list = [weight * var for weight, var in penalties]
     obj.append(w["waste"] * waste)
     obj += [w["peak"] * p for p in peak_terms]
 
@@ -349,44 +349,198 @@ def solve(
             model.Add(y[m.id][bs] + z[m.id][br] >= 2).OnlyEnforceIf(moved.Not())
             obj.append(MOVE_PENALTY * moved)
 
-    model.Minimize(sum(obj))
+    total = model.NewIntVar(0, 2**40, "objective")
+    model.Add(total == sum(obj))
+    model.Minimize(total)
 
-    if base is not None:
+    return _Model(model, y, z, total, max_daily)
+
+
+@dataclass
+class _Model:
+    model: cp_model.CpModel
+    y: dict[str, dict[int, cp_model.IntVar]]
+    z: dict[str, dict[str, cp_model.IntVar]]
+    total: cp_model.IntVar
+    max_daily: dict[str, int]
+
+    def pin(self, target: cp_model.CpModel, mid: str, slot: int, room: str) -> None:
+        """Force a meeting to a slot and room by index, straight on the proto."""
+        for var in (self.y[mid][slot], self.z[mid][room]):
+            ct = target.Proto().constraints.add()
+            ct.linear.vars.append(var.Index())
+            ct.linear.coeffs.append(1)
+            ct.linear.domain.extend([1, 1])
+
+    def read(self, solver: cp_model.CpSolver, u: University) -> Assignment:
+        return Assignment(
+            slot={
+                m.id: next(s for s, v in self.y[m.id].items() if solver.Value(v))
+                for m in u.meetings
+            },
+            room={
+                m.id: next(r for r, v in self.z[m.id].items() if solver.Value(v))
+                for m in u.meetings
+            },
+        )
+
+    def score(self, a: Assignment, u: University) -> int | None:
+        """Objective value of a complete assignment, priced by CP-SAT itself."""
+        self.model.ClearHints()
         for m in u.meetings:
-            bs, br = base.slot.get(m.id), base.room.get(m.id)
-            if bs in y[m.id]:
-                model.AddHint(y[m.id][bs], 1)
-            if br in z[m.id]:
-                model.AddHint(z[m.id][br], 1)
+            if a.slot.get(m.id) not in self.y[m.id] or a.room.get(m.id) not in self.z[m.id]:
+                return None
+            self.model.AddHint(self.y[m.id][a.slot[m.id]], 1)
+            self.model.AddHint(self.z[m.id][a.room[m.id]], 1)
+        probe = cp_model.CpSolver()
+        probe.parameters.fix_variables_to_their_hinted_value = True
+        probe.parameters.num_workers = 1
+        probe.parameters.max_time_in_seconds = 10.0
+        st = probe.Solve(self.model)
+        self.model.ClearHints()
+        if st not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+            return None
+        return int(probe.ObjectiveValue())
 
-    solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = time_limit
-    solver.parameters.num_workers = 8
-    solver.parameters.random_seed = 7
-    status = solver.Solve(model)
-    name = solver.StatusName(status)
 
-    if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-        return SolveResult(name, None, None, solver.WallTime(), profile)
+def _neighborhoods(u: University, cur: Assignment) -> list[set[str]]:
+    """The meeting sets CP-SAT re-optimises, interleaved so a short run still
+    sees every kind of neighbourhood."""
+    days: list[set[str]] = []
+    for d in range(N_DAYS):
+        days.append({m for m, s in cur.slot.items() if slot_day(s) == d})
+    per_instructor: list[set[str]] = []
+    per_cohort: list[set[str]] = []
+    by_instructor: dict[str, set[str]] = {}
+    for m in u.meetings:
+        by_instructor.setdefault(
+            u.section_by_id[m.section_id].instructor_id, set()
+        ).add(m.id)
+    insts = sorted(by_instructor)
+    for i in range(0, len(insts), 2):
+        free: set[str] = set()
+        for inst in insts[i : i + 2]:
+            free |= by_instructor[inst]
+        per_instructor.append(free)
+    for cohort in u.cohorts:
+        free = {
+            m.id
+            for sec in u.sections
+            if cohort in u.serving_cohorts[sec.id]
+            for m in u.meetings_of_section[sec.id]
+        }
+        if free:
+            per_cohort.append(free)
 
-    assignment = Assignment(
-        slot={
-            m.id: next(s for s, v in y[m.id].items() if solver.Value(v)) for m in u.meetings
-        },
-        room={
-            m.id: next(r for r, v in z[m.id].items() if solver.Value(v)) for m in u.meetings
-        },
+    out: list[set[str]] = []
+    for group in zip_longest(days, per_instructor, per_cohort):
+        out += [f for f in group if f]
+    return out
+
+
+def solve(
+    u: University,
+    profile: str = "balanced",
+    constraints: list[dict] | None = None,
+    base: Assignment | None = None,
+    time_limit: float = 30.0,
+    minimal_change: bool = False,
+    hint_from: Assignment | None = None,
+    rounds: int | None = None,
+) -> SolveResult:
+    """Constructive warm start, then CP-SAT re-optimises one neighbourhood at a
+    time. Every round is solved to optimality by a single worker, so the whole
+    search is reproducible run to run.
+    """
+    import time as _time
+
+    started = _time.time()
+    constraints = constraints or []
+    w = PROFILES[profile]
+
+    allowed_slots = _allowed_slots(u, constraints)
+    allowed_rooms = _allowed_rooms(u, constraints)
+    for m in u.meetings:
+        if not allowed_slots[m.id] or not allowed_rooms[m.id]:
+            sec = u.section_by_id[m.section_id]
+            return SolveResult(
+                "INFEASIBLE", None, None, 0.0, profile,
+                message=f"No slot or room left for section {sec.id}",
+            )
+
+    built = _build_model(
+        u, profile, constraints, allowed_slots, allowed_rooms, base, minimal_change
     )
+
+    starts = [c for c in (base, hint_from) if c is not None]
+    starts.append(
+        greedy_start(u, allowed_slots, allowed_rooms, built.max_daily, w)
+    )
+    cur: Assignment | None = None
+    cur_obj: int | None = None
+    for cand in starts:
+        if cand is None:
+            continue
+        value = built.score(cand, u)
+        if value is not None and (cur_obj is None or value < cur_obj):
+            cur, cur_obj = cand, value
+
+    if cur is None:
+        # No usable starting point: let CP-SAT look for one from scratch.
+        solver = cp_model.CpSolver()
+        solver.parameters.max_time_in_seconds = time_limit
+        solver.parameters.num_workers = 8
+        status = solver.Solve(built.model)
+        if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+            return SolveResult(
+                "INFEASIBLE", None, None, _time.time() - started, profile,
+                message="No schedule satisfies these constraints.",
+            )
+        return SolveResult(
+            solver.StatusName(status), built.read(solver, u),
+            int(solver.ObjectiveValue()), _time.time() - started, profile,
+        )
+
+    hoods = _neighborhoods(u, cur)[: rounds or DEFAULT_ROUNDS]
+    improved = 0
+    for free in hoods:
+        if _time.time() - started > time_limit:
+            break
+        round_model = cp_model.CpModel()
+        round_model.Proto().copy_from(built.model.Proto())
+        hint = round_model.Proto().solution_hint
+        for m in u.meetings:
+            if m.id in free:
+                hint.vars.append(built.y[m.id][cur.slot[m.id]].Index())
+                hint.values.append(1)
+                hint.vars.append(built.z[m.id][cur.room[m.id]].Index())
+                hint.values.append(1)
+            else:
+                built.pin(round_model, m.id, cur.slot[m.id], cur.room[m.id])
+        # never accept a round that is worse than what we already hold
+        ct = round_model.Proto().constraints.add()
+        ct.linear.vars.append(built.total.Index())
+        ct.linear.coeffs.append(1)
+        ct.linear.domain.extend([0, cur_obj])
+        solver = cp_model.CpSolver()
+        solver.parameters.num_workers = 1
+        solver.parameters.max_deterministic_time = ROUND_DET_TIME
+        solver.parameters.max_time_in_seconds = ROUND_DET_TIME * 10
+        status = solver.Solve(round_model)
+        if _TRACE:
+            print(f"   round free={len(free):3d} {solver.StatusName(status):9}"
+                  f" {solver.WallTime():5.1f}s det={solver.deterministic_time:4.1f}"
+                  f" obj={solver.ObjectiveValue() if status in (cp_model.OPTIMAL, cp_model.FEASIBLE) else None}"
+                  f" cur={cur_obj}", flush=True)
+        if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+            continue
+        value = int(solver.ObjectiveValue())
+        if value < cur_obj:
+            cur, cur_obj = built.read(solver, u), value
+            improved += 1
+
     return SolveResult(
-        name, assignment, int(solver.ObjectiveValue()), solver.WallTime(), profile
+        "OPTIMAL" if improved else "FEASIBLE", cur, cur_obj,
+        _time.time() - started, profile,
+        message=f"{improved} neighbourhood(s) improved",
     )
-
-
-def _or_var(model, run, nxt, name):
-    if nxt is None:
-        return run
-    if run is None:
-        return nxt
-    v = model.NewBoolVar(name)
-    model.AddMaxEquality(v, [run, nxt])
-    return v
