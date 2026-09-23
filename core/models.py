@@ -40,6 +40,13 @@ class Room:
     capacity: int
     accessible: bool
 
+    @property
+    def floor(self) -> int | None:
+        """Read off the room number: B1-201 is on floor 2. None when the id
+        does not carry one."""
+        _, _, number = self.id.partition("-")
+        return int(number[0]) if number[:1].isdigit() else None
+
 
 @dataclass
 class Instructor:

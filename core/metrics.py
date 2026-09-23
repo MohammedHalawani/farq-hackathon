@@ -4,6 +4,7 @@ import statistics
 from dataclasses import dataclass
 
 from core.models import (
+    FIRST_HOUR,
     N_DAYS,
     Assignment,
     University,
@@ -112,6 +113,94 @@ def accessibility_violations(u: University, a: Assignment) -> list[dict]:
                             "minutes": w,
                         }
                     )
+    return out
+
+
+def problem_labels(
+    u: University, a: Assignment, entity_type: str, entity_id: str
+) -> dict[str, list[dict]]:
+    """Why each meeting is a problem for this entity, in words an administrator
+    can read. Built here so the wording never depends on the model."""
+    out: dict[str, list[dict]] = {}
+
+    def add(mid: str, kind: str, text_en: str, text_ar: str) -> None:
+        out.setdefault(mid, []).append(
+            {"kind": kind, "text_en": text_en, "text_ar": text_ar}
+        )
+
+    if entity_type == "student":
+        student_ids = [entity_id]
+    elif entity_type == "cohort":
+        student_ids = [
+            s.id for s in u.students if f"{s.department}-L{s.level}" == entity_id
+        ]
+    else:
+        student_ids = []
+
+    # --- clashes: two classes the same person must be at once
+    for sid in student_ids:
+        st = u.student_by_id[sid]
+        at_slot: dict[int, list[str]] = {}
+        for sec in st.section_ids:
+            for m in u.meetings_of_section[sec]:
+                if m.id in a.slot:
+                    at_slot.setdefault(a.slot[m.id], []).append(m.id)
+        for slot, mids in at_slot.items():
+            if len(mids) < 2:
+                continue
+            names = [
+                u.course_by_id[u.section_by_id[u.meeting_by_id[m].section_id].course_id]
+                for m in mids
+            ]
+            when = f"{FIRST_HOUR + slot_period(slot):02d}:00"
+            en = " and ".join(c.name for c in names) + f" both at {when}"
+            ar = " و".join(c.name_ar for c in names) + f" في نفس الوقت {when}"
+            for m in mids:
+                add(m, "clash", en, ar)
+
+    # --- accessibility: the room itself, then the walk between rooms
+    need = {sid for sid in student_ids if u.student_by_id[sid].needs_accessibility}
+    for sid in need:
+        st = u.student_by_id[sid]
+        for sec in st.section_ids:
+            for m in u.meetings_of_section[sec]:
+                if m.id not in a.room:
+                    continue
+                r = u.room_by_id[a.room[m.id]]
+                if r.accessible:
+                    continue
+                where = f" · floor {r.floor}" if r.floor and r.floor > 1 else ""
+                where_ar = f" · الدور {r.floor}" if r.floor and r.floor > 1 else ""
+                add(
+                    m.id,
+                    "inaccessible",
+                    f"Room {r.id}{where} · no step-free access",
+                    f"قاعة {r.id}{where_ar} · غير مهيّأة للوصول",
+                )
+        for _, ms in student_day_meetings(u, a, sid).items():
+            for (p1, r1, m1), (p2, r2, m2) in zip(ms, ms[1:]):
+                if p2 - p1 != 1:
+                    continue
+                mins = u.walk_minutes(r1, r2)
+                if mins <= ACCESSIBLE_TRANSIT_LIMIT:
+                    continue
+                for m in (m1, m2):
+                    add(
+                        m,
+                        "transit",
+                        f"{mins} min walk (limit {ACCESSIBLE_TRANSIT_LIMIT})",
+                        f"{mins} دقيقة مشي (الحد {ACCESSIBLE_TRANSIT_LIMIT})",
+                    )
+
+    # de-duplicate: the same walk is reported from both ends
+    for mid, items in out.items():
+        seen, unique = set(), []
+        for it in items:
+            if it["text_en"] in seen:
+                continue
+            seen.add(it["text_en"])
+            unique.append(it)
+        out[mid] = unique
     return out
 
 

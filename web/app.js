@@ -15,7 +15,7 @@ const I18N = {
     h_metrics: "Every metric, side by side", empty_compare: "Run the solver to compare.",
     eyebrow_timetable: "Weekly grid", h_timetable: "Timetable",
     opt_student: "Student", opt_cohort: "Cohort", opt_instructor: "Instructor", opt_room: "Room",
-    opt_optimised: "Optimised", opt_baseline: "Baseline",
+    opt_optimised: "Optimised", opt_baseline: "Baseline", opt_compare_mode: "Before / after",
     legend_conflict: "Clash", legend_access: "Accessibility violation", legend_ok: "Scheduled",
     eyebrow_agent: "Arabic or English", h_agent: "Ask for a change",
     p_agent: "The agent never edits the schedule. It proposes a structured constraint, you confirm it, and the solver re-solves with the smallest possible change.",
@@ -35,7 +35,7 @@ const I18N = {
     h_metrics: "كل المؤشرات جنبًا إلى جنب", empty_compare: "شغّل المحرك للمقارنة.",
     eyebrow_timetable: "الجدول الأسبوعي", h_timetable: "الجدول",
     opt_student: "طالب", opt_cohort: "دفعة", opt_instructor: "مدرّس", opt_room: "قاعة",
-    opt_optimised: "المحسّن", opt_baseline: "الأساسي",
+    opt_optimised: "المحسّن", opt_baseline: "الأساسي", opt_compare_mode: "قبل / بعد",
     legend_conflict: "تعارض", legend_access: "مخالفة إمكانية وصول", legend_ok: "مجدول",
     eyebrow_agent: "بالعربية أو الإنجليزية", h_agent: "اطلب تعديلًا",
     p_agent: "المساعد لا يعدّل الجدول بنفسه. يقترح قيدًا منظّمًا، وأنت تؤكّده، ثم يعيد المحرك الحل بأقل تغيير ممكن.",
@@ -303,8 +303,12 @@ async function runSolver() {
     stop.done = true;
     renderComparison();
     setStatus();
-    state.source = "current";
-    $("#ent-source").value = "current";
+    // after the first solve, move the reader from the problem to the fix —
+    // but never override a view they chose themselves
+    if (state.source === "baseline") {
+      state.source = "current";
+      $("#ent-source").value = "current";
+    }
     await loadGrid();
   } catch (e) {
     stop.done = true;
@@ -399,23 +403,32 @@ $("#ent-id").addEventListener("change", (e) => { state.entId = e.target.value; r
 $("#ent-source").addEventListener("change", (e) => { state.source = e.target.value; loadGrid(); });
 
 let gridData = null;
+let compareData = { baseline: null, current: null };
+
 async function loadGrid() {
   if (!state.entId) return;
+  const path = (src) => `/api/schedule/${state.entType}/${state.entId}?source=${src}`;
+  if (state.source === "compare") {
+    if (!state.comparison) { await runSolver(); if (!state.comparison) return; }
+    const [b, c] = await Promise.all([api(path("baseline")), api(path("current"))]);
+    compareData = { baseline: b, current: c };
+    renderGrid();
+    return;
+  }
   if (state.source === "current" && !state.comparison) { gridData = null; renderGrid(); return; }
-  gridData = await api(`/api/schedule/${state.entType}/${state.entId}?source=${state.source}`);
+  gridData = await api(path(state.source));
   renderGrid();
 }
 
-function renderGrid() {
-  const host = $("#grid");
-  host.innerHTML = "";
+function buildGrid(host, data, opts = {}) {
+  host.replaceChildren();
   if (!state.meta) return;
   const days = state.lang === "ar" ? state.meta.days_ar : state.meta.days;
   host.appendChild(el("div", "gh", ""));
   days.forEach((d) => host.appendChild(el("div", "gh", d)));
 
   const cells = {};
-  (gridData?.cells ?? []).forEach((c) => {
+  (data?.cells ?? []).forEach((c) => {
     (cells[`${c.day}:${c.period}`] ||= []).push(c);
   });
 
@@ -440,8 +453,20 @@ function renderGrid() {
           who.dir = "auto";
           ev.appendChild(who);
         }
-        if (c.conflict) ev.appendChild(el("span", "flag flag--conflict", state.lang === "ar" ? "تعارض" : "clash"));
-        if (c.accessibility_issue) ev.appendChild(el("span", "flag flag--access", c.accessibility_issue));
+        const problems = c.problems || [];
+        if (opts.why && problems.length) {
+          for (const p of problems) {
+            const w = el("span", "why why--" + p.kind, state.lang === "ar" ? p.text_ar : p.text_en);
+            w.dir = "auto";
+            ev.appendChild(w);
+          }
+        } else {
+          if (c.conflict) ev.appendChild(el("span", "flag flag--conflict", state.lang === "ar" ? "تعارض" : "clash"));
+          if (c.accessibility_issue) ev.appendChild(el("span", "flag flag--access", c.accessibility_issue));
+        }
+        if (opts.why && !problems.length) {
+          ev.appendChild(el("span", "ok-mark", "\u2705 " + (state.lang === "ar" ? "سليم" : "clear")));
+        }
         box.appendChild(ev);
       }
       host.appendChild(box);
@@ -449,15 +474,54 @@ function renderGrid() {
   });
 
   stagger([...host.querySelectorAll(".ev")].slice(0, 13));
+}
 
+function problemChip(n) {
+  const word = state.lang === "ar" ? (n === 1 ? "مشكلة" : "مشاكل") : (n === 1 ? "problem" : "problems");
+  return el("span", "chip " + (n ? "chip--bad" : "chip--ok"), `${n} ${word}`);
+}
+
+function renderGrid() {
+  const split = $("#split-view"), single = $("#single-view");
+  const isCompare = state.source === "compare";
+  single.hidden = isCompare;
+  split.hidden = !isCompare;
+
+  if (isCompare) {
+    split.replaceChildren();
+    const wrap = el("div", "split");
+    for (const [key, label] of [
+      ["baseline", state.lang === "ar" ? "الأساسي" : "Baseline"],
+      ["current", state.lang === "ar" ? "المحسّن" : "Optimised"],
+    ]) {
+      const side = el("div", "split__side");
+      const head = el("div", "split__head");
+      head.appendChild(el("span", "eyebrow", label));
+      const data = compareData[key];
+      head.appendChild(problemChip(data ? data.problem_count : 0));
+      side.appendChild(head);
+      const gw = el("div", "grid-wrap");
+      const g = el("div", "grid");
+      gw.appendChild(g);
+      side.appendChild(gw);
+      wrap.appendChild(side);
+      buildGrid(g, data, { why: true });
+    }
+    split.appendChild(wrap);
+    $("#ent-flags").replaceChildren();
+    return;
+  }
+
+  buildGrid($("#grid"), gridData);
   const flags = $("#ent-flags");
-  flags.innerHTML = "";
-  const nConf = (gridData?.cells ?? []).filter((c) => c.conflict).length;
-  const nAcc = (gridData?.cells ?? []).filter((c) => c.accessibility_issue).length;
-  const chip = (cls, text) => { const c = el("span", "chip " + cls, text); flags.appendChild(c); };
+  flags.replaceChildren();
   if (gridData) {
-    chip(nConf ? "chip--bad" : "chip--ok", `${nConf} ${state.lang === "ar" ? "تعارض" : "clashes"}`);
-    chip(nAcc ? "chip--warn" : "chip--ok", `${nAcc} ${state.lang === "ar" ? "مخالفة وصول" : "access issues"}`);
+    const nConf = gridData.cells.filter((c) => c.conflict).length;
+    const nAcc = gridData.cells.filter((c) => c.accessibility_issue).length;
+    flags.appendChild(el("span", "chip " + (nConf ? "chip--bad" : "chip--ok"),
+      `${nConf} ${state.lang === "ar" ? "تعارض" : "clashes"}`));
+    flags.appendChild(el("span", "chip " + (nAcc ? "chip--warn" : "chip--ok"),
+      `${nAcc} ${state.lang === "ar" ? "مخالفة وصول" : "access issues"}`));
   }
 }
 

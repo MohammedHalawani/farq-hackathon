@@ -66,10 +66,12 @@
       <select id="ent-source" aria-label="Schedule">
         <option value="baseline" data-i18n="opt_baseline">Baseline</option>
         <option value="current" data-i18n="opt_optimised">Optimised</option>
+        <option value="compare" data-i18n="opt_compare_mode">Before / after</option>
       </select>
       <span id="ent-flags"></span>
     </div>
-    <div class="grid-wrap"><div class="grid" id="grid"></div></div>
+    <div id="single-view"><div class="grid-wrap"><div class="grid" id="grid"></div></div></div>
+    <div id="split-view" hidden></div>
     <div class="legend">
       <span><i class="swatch swatch--bad" aria-hidden="true"></i><span data-i18n="legend_conflict">Clash</span></span>
       <span><i class="swatch swatch--warn" aria-hidden="true"></i><span data-i18n="legend_access">Accessibility violation</span></span>

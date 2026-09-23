@@ -586,6 +586,54 @@ td.num, th.num { text-align: end; font-family: var(--font-mono); font-variant-nu
 .swatch--warn { background: var(--color-warn-line); }
 .swatch--ok { background: var(--color-accent); }
 
+/* --- before / after split --------------------------------------------- */
+.split {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-md);
+  align-items: start;
+}
+
+.split__side { min-width: 0; }
+
+.split__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2xs);
+  margin-bottom: var(--space-2xs);
+  flex-wrap: wrap;
+}
+
+.split .grid { grid-template-columns: 48px repeat(5, minmax(96px, 1fr)); min-width: 560px; }
+.split .ev__meta { font-size: 0.6rem; }
+.split .cell { min-height: 52px; }
+
+.why {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  line-height: 1.35;
+  letter-spacing: 0.01em;
+  margin-top: var(--space-3xs);
+  color: var(--color-bad);
+}
+
+.why--transit, .why--inaccessible { color: var(--color-warn); }
+
+.ok-mark {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.04em;
+  margin-top: var(--space-3xs);
+  color: var(--color-good);
+}
+
+@media (max-width: 860px) {
+  .split { grid-template-columns: minmax(0, 1fr); }
+}
+
 /* --- chips ------------------------------------------------------------ */
 .chip {
   display: inline-flex;

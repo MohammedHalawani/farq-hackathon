@@ -8,7 +8,11 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from api.state import SESSION
-from core.metrics import ACCESSIBLE_TRANSIT_LIMIT, student_day_meetings
+from core.metrics import (
+    ACCESSIBLE_TRANSIT_LIMIT,
+    problem_labels,
+    student_day_meetings,
+)
 from core.models import DAYS, DAYS_AR, FIRST_HOUR, N_PERIODS, slot_day, slot_period
 from data.generator import PERSONAS
 
@@ -193,7 +197,16 @@ def schedule(entity_type: str, entity_id: str, source: str = "current") -> dict:
             }
         )
     _annotate(entity_type, entity_id, a, cells)
-    return {"entity_type": entity_type, "entity_id": entity_id, "cells": cells}
+    labels = problem_labels(u, a, entity_type, entity_id)
+    for c in cells:
+        c["problems"] = labels.get(c["meeting_id"], [])
+    return {
+        "entity_type": entity_type,
+        "entity_id": entity_id,
+        "source": source,
+        "cells": cells,
+        "problem_count": sum(len(c["problems"]) for c in cells),
+    }
 
 
 def _meetings_for(entity_type: str, entity_id: str) -> list[str]:
