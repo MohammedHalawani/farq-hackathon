@@ -457,7 +457,6 @@ function renderSide() {
     const n = el("div", "notice notice--bad",
       (state.lang === "ar" ? "لا يوجد جدول ممكن. " : "No feasible schedule. ") +
       t("conflicts_with") + ": " + (c.blocking || []).join("; "));
-    n.style.margin = "0 var(--space-sm) var(--space-xs)";
     card.appendChild(n);
   } else if (c.kind === "what_if") {
     const sub = el("div", "card__head");

@@ -21,8 +21,9 @@
   --color-rule-2: oklch(84% 0.008 254);
 
   /* the one signal */
-  --color-accent: oklch(58% 0.2 256);
-  --color-accent-strong: oklch(52% 0.2 256);
+  --color-accent: oklch(55% 0.2 256);
+  --color-accent-strong: oklch(49% 0.2 256);
+  --color-accent-text: oklch(46% 0.2 256);
   --color-accent-soft: oklch(94% 0.03 256);
   --color-accent-ink: oklch(99% 0.004 250);
 
@@ -44,7 +45,7 @@
   --color-good-line: oklch(70% 0.11 158);
   --color-good-soft: oklch(94% 0.05 158);
 
-  --color-focus: oklch(58% 0.2 256);
+  --color-focus: oklch(55% 0.2 256);
 
   --font-display: "Space Grotesk", system-ui, sans-serif;
   --font-body: "Inter", system-ui, sans-serif;
@@ -442,7 +443,7 @@ td.num, th.num { text-align: end; font-family: var(--font-mono); font-variant-nu
 .chip--ok { color: var(--color-good); border-color: var(--color-good-line); background: var(--color-good-soft); }
 .chip--bad { color: var(--color-bad); border-color: var(--color-bad-line); background: var(--color-bad-soft); }
 .chip--warn { color: var(--color-warn); border-color: var(--color-warn-line); background: var(--color-warn-soft); }
-.chip--signal { color: var(--color-accent); border-color: var(--color-accent); background: var(--color-accent-soft); }
+.chip--signal { color: var(--color-accent-text); border-color: var(--color-accent); background: var(--color-accent-soft); }
 
 /* --- agent ------------------------------------------------------------ */
 .agent {
@@ -573,6 +574,8 @@ td.num, th.num { text-align: end; font-family: var(--font-mono); font-variant-nu
 }
 
 .notice--bad { border-inline-start-color: var(--color-bad); background: var(--color-bad-soft); color: var(--color-bad); }
+
+.side .notice { margin: 0 var(--space-sm) var(--space-xs); }
 
 @media (max-width: 900px) {
   .agent { grid-template-columns: minmax(0, 1fr); }
