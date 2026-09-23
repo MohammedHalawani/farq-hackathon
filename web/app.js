@@ -57,6 +57,7 @@ const PROFILE_LABEL = {
 const state = {
   lang: "en", meta: null, entities: null, comparison: null,
   entType: "student", entId: null, source: "baseline", pending: null, busy: false,
+  lastApplied: null,
 };
 
 const t = (k) => I18N[state.lang][k] || k;
@@ -89,7 +90,7 @@ $("#lang-toggle").addEventListener("click", () => { state.lang = state.lang === 
 
 /* ---------- 1 · compare ---------- */
 const FMT = {
-  avg_idle_hours_per_student_per_day: (v) => v.toFixed(2),
+  avg_idle_hours_per_student_per_day: (v) => (v * 60).toFixed(1),
   pct_students_conflict_free: (v) => v.toFixed(1) + "%",
   pct_repeaters_conflict_free: (v) => v.toFixed(1) + "%",
   avg_room_fill_rate: (v) => (v * 100).toFixed(1) + "%",
@@ -103,7 +104,7 @@ const ROWS = [
   ["accessibility_violations", "Accessibility violations", "مخالفات إمكانية الوصول", "lower"],
   ["access_max_transit_minutes", "Max transit, accessibility (min)", "أقصى انتقال لذوي الإعاقة (د)", "lower"],
   ["access_avg_transit_minutes", "Avg transit, accessibility (min)", "متوسط الانتقال لذوي الإعاقة (د)", "lower"],
-  ["avg_idle_hours_per_student_per_day", "Avg idle hours / student / day", "متوسط ساعات الفراغ لكل طالب يوميًا", "lower"],
+  ["avg_idle_hours_per_student_per_day", "Avg idle minutes / student / day", "متوسط دقائق الفراغ لكل طالب يوميًا", "lower"],
   ["avg_walk_minutes", "Avg walking minutes", "متوسط دقائق المشي", "lower"],
   ["avg_room_fill_rate", "Avg room fill rate", "متوسط إشغال القاعات", "higher"],
   ["instructor_load_std", "Instructor load std. dev.", "الانحراف المعياري لحمل المدرّسين", "lower"],
@@ -125,8 +126,9 @@ function renderHeadline() {
     [state.lang === "ar" ? "المعيدون بلا تعارض" : "Repeaters conflict-free",
      b.pct_repeaters_conflict_free.toFixed(0) + "%", best.pct_repeaters_conflict_free.toFixed(0) + "%",
      state.lang === "ar" ? "الطلاب الذين يحملون مقررات من مستوى أدنى" : "students carrying a lower-level course", false],
-    [state.lang === "ar" ? "ساعات الفراغ يوميًا" : "Idle hours per day",
-     b.avg_idle_hours_per_student_per_day.toFixed(2), best.avg_idle_hours_per_student_per_day.toFixed(2),
+    [state.lang === "ar" ? "دقائق الفراغ يوميًا" : "Idle minutes per day",
+     (b.avg_idle_hours_per_student_per_day * 60).toFixed(0),
+     (best.avg_idle_hours_per_student_per_day * 60).toFixed(0),
      state.lang === "ar" ? "متوسط لكل طالب" : "average per student", false],
   ];
   for (const [label, from, to, note, signal] of stats) {
@@ -319,11 +321,283 @@ function renderGrid() {
   }
 }
 
-/* ---------- 3 · agent (wired in milestone 5) ---------- */
-function renderSuggest() {}
-function renderSide() {}
-function renderChanges() {}
-async function loadChanges() {}
+/* ---------- 3 · agent ---------- */
+const SUGGEST = {
+  en: [
+    "Dr. Ahmed can't teach Tuesday after 2pm",
+    "What if we close room B12?",
+    "Why does BA-L2 have a gap on Monday?",
+    "Why is S01-m1 scheduled where it is?",
+  ],
+  ar: [
+    "د. أحمد ما يقدر يدرّس الثلاثاء بعد الساعة ٢",
+    "ماذا لو أغلقنا قاعة B12؟",
+    "ليش عند BA-L2 فراغ يوم الاثنين؟",
+    "وش وضع جدول د. سارة القحطاني؟",
+  ],
+};
+
+function renderSuggest() {
+  const host = $("#suggest");
+  if (!host) return;
+  host.replaceChildren();
+  for (const text of SUGGEST[state.lang]) {
+    const b = el("button", null, text);
+    b.type = "button";
+    b.dir = "auto";
+    b.title = text;
+    b.addEventListener("click", () => sendMessage(text));
+    host.appendChild(b);
+  }
+}
+
+function addMessage(role, text) {
+  const log = $("#chat-log");
+  const wrap = el("div", "msg msg--" + role);
+  wrap.appendChild(el("div", "msg__who", role === "admin"
+    ? (state.lang === "ar" ? "أنت" : "Admin")
+    : (state.lang === "ar" ? "المساعد" : "Assistant")));
+  const body = el("div", "msg__body", text);
+  body.dir = "auto";
+  wrap.appendChild(body);
+  log.appendChild(wrap);
+  log.scrollTop = log.scrollHeight;
+  return wrap;
+}
+
+$("#chat-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const v = $("#chat-input").value.trim();
+  if (v) sendMessage(v);
+});
+
+async function sendMessage(text) {
+  if (state.busy) return;
+  state.busy = true;
+  $("#chat-input").value = "";
+  addMessage("admin", text);
+  const pending = addMessage("agent", state.lang === "ar" ? "…" : "…");
+  try {
+    const out = await api("/api/agent/message", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: text }),
+    });
+    pending.querySelector(".msg__body").textContent = out.reply;
+    state.pending = out.card || null;
+    renderSide();
+  } catch (e) {
+    pending.querySelector(".msg__body").textContent = e.message;
+  } finally {
+    state.busy = false;
+  }
+}
+
+function deltaRows(deltas) {
+  const table = el("table");
+  const tb = el("tbody");
+  let any = false;
+  for (const key of Object.keys(deltas)) {
+    const d = deltas[key];
+    if (d.delta === 0) continue;
+    any = true;
+    const improved = d.better === "higher" ? d.delta > 0 : d.delta < 0;
+    const tr = el("tr");
+    tr.appendChild(el("td", "metric-name", d.label));
+    tr.appendChild(el("td", "num", fmt(key, d.before)));
+    tr.appendChild(el("td", "num " + (improved ? "delta-up" : "delta-down"), fmt(key, d.after)));
+    tb.appendChild(tr);
+  }
+  if (!any) {
+    const tr = el("tr");
+    tr.appendChild(el("td", "empty", state.lang === "ar" ? "لا تغيّر في المؤشرات" : "No metric changed"));
+    tb.appendChild(tr);
+  }
+  table.appendChild(tb);
+  return table;
+}
+
+function cardRows(describe) {
+  const dl = el("dl", "confirm__rows");
+  for (const r of describe.rows) {
+    const row = el("div", "crow");
+    row.appendChild(el("dt", null, state.lang === "ar" ? r.label_ar : r.label_en));
+    const dd = el("dd", null, state.lang === "ar" && r.value_ar ? r.value_ar : r.value);
+    dd.dir = "auto";
+    row.appendChild(dd);
+    dl.appendChild(row);
+  }
+  return dl;
+}
+
+function renderSide() {
+  const host = $("#side");
+  if (!host) return;
+  host.replaceChildren();
+  const c = state.pending;
+  if (!c) {
+    const card = el("div", "card");
+    card.appendChild(el("div", "empty", state.lang === "ar"
+      ? "لا يوجد تغيير بانتظار التأكيد."
+      : "No change is waiting for confirmation."));
+    host.appendChild(card);
+    if (state.lastApplied) host.appendChild(appliedCard(state.lastApplied));
+    return;
+  }
+
+  const card = el("div", "card");
+  const head = el("div", "card__head");
+  head.appendChild(el("h3", null, state.lang === "ar" ? c.describe.title_ar : c.describe.title_en));
+  head.appendChild(el("span", "chip " + (c.kind === "what_if" ? "chip--signal" : ""),
+    c.kind === "what_if" ? t("preview") : t("confirm")));
+  card.appendChild(head);
+  card.appendChild(cardRows(c.describe));
+
+  if (c.kind === "what_if" && c.feasible === false) {
+    const n = el("div", "notice notice--bad",
+      (state.lang === "ar" ? "لا يوجد جدول ممكن. " : "No feasible schedule. ") +
+      t("conflicts_with") + ": " + (c.blocking || []).join("; "));
+    n.style.margin = "0 var(--space-sm) var(--space-xs)";
+    card.appendChild(n);
+  } else if (c.kind === "what_if") {
+    const sub = el("div", "card__head");
+    sub.appendChild(el("span", "eyebrow", state.lang === "ar" ? "أثر التغيير" : "Effect"));
+    sub.appendChild(el("span", "chip", `${c.moved_count} ${t("moved")}`));
+    card.appendChild(sub);
+    card.appendChild(deltaRows(c.deltas));
+  }
+
+  const actions = el("div", "actions");
+  if (!(c.kind === "what_if" && c.feasible === false)) {
+    const apply = el("button", "btn btn--primary",
+      c.kind === "what_if" ? t("apply_this") : t("apply"));
+    apply.type = "button";
+    apply.addEventListener("click", () => applyPending(apply));
+    actions.appendChild(apply);
+  }
+  const cancel = el("button", "btn btn--ghost", t("cancel"));
+  cancel.type = "button";
+  cancel.addEventListener("click", () => { state.pending = null; renderSide(); });
+  actions.appendChild(cancel);
+  card.appendChild(actions);
+  host.appendChild(card);
+  if (state.lastApplied) host.appendChild(appliedCard(state.lastApplied));
+}
+
+function appliedCard(v) {
+  const card = el("div", "card");
+  const head = el("div", "card__head");
+  head.appendChild(el("h3", null, state.lang === "ar" ? "آخر تغيير مطبّق" : "Last applied change"));
+  head.appendChild(el("span", "chip chip--ok", `${v.moved_count} ${t("moved")}`));
+  card.appendChild(head);
+  card.appendChild(deltaRows(v.deltas));
+  const actions = el("div", "actions");
+  const undo = el("button", "btn", t("undo"));
+  undo.type = "button";
+  undo.addEventListener("click", () => doUndo(undo));
+  actions.appendChild(undo);
+  card.appendChild(actions);
+  return card;
+}
+
+async function applyPending(btn) {
+  if (state.busy) return;
+  state.busy = true;
+  btn.disabled = true;
+  btn.replaceChildren(el("span", "spinner"), document.createTextNode(" " + t("applying")));
+  btn.querySelector(".spinner").setAttribute("aria-hidden", "true");
+  try {
+    const out = await api("/api/changes/apply", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ constraint: state.pending.constraint }),
+    });
+    if (!out.ok) {
+      addMessage("agent", (state.lang === "ar" ? "تعذّر التطبيق: " : "Could not apply: ") +
+        out.message + " — " + t("conflicts_with") + ": " +
+        (out.blocking || []).map((b) => b.type).join(", "));
+      state.pending = null;
+    } else {
+      state.lastApplied = out.version;
+      state.pending = null;
+      addMessage("agent", (state.lang === "ar"
+        ? `تم التطبيق. نُقلت ${out.version.moved_count} محاضرة.`
+        : `Applied. ${out.version.moved_count} meetings moved.`));
+      await refreshAfterChange();
+    }
+    renderSide();
+  } catch (e) {
+    addMessage("agent", e.message);
+  } finally {
+    state.busy = false;
+  }
+}
+
+async function doUndo(btn) {
+  if (state.busy) return;
+  state.busy = true;
+  if (btn) btn.disabled = true;
+  try {
+    const out = await api("/api/changes/undo", { method: "POST" });
+    if (!out.ok) { addMessage("agent", out.message); return; }
+    state.lastApplied = out.version.index > 0 ? out.version : null;
+    addMessage("agent", state.lang === "ar" ? "تم التراجع." : "Change undone.");
+    await refreshAfterChange();
+    renderSide();
+  } finally {
+    state.busy = false;
+    if (btn) btn.disabled = false;
+  }
+}
+
+$("#undo").addEventListener("click", () => doUndo($("#undo")));
+
+async function refreshAfterChange() {
+  state.source = "current";
+  $("#ent-source").value = "current";
+  await loadGrid();
+  await loadChanges();
+}
+
+/* ---------- 4 · change log ---------- */
+let changeData = null;
+
+async function loadChanges() {
+  changeData = await api("/api/changes");
+  renderChanges();
+}
+
+function renderChanges() {
+  const table = $("#changes");
+  if (!table) return;
+  table.replaceChildren();
+  const thead = el("thead");
+  const hr = el("tr");
+  [t("version"), t("change"), t("when"), t("moved")].forEach((h, i) =>
+    hr.appendChild(el("th", i === 3 ? "num" : null, h)));
+  thead.appendChild(hr);
+  table.appendChild(thead);
+  const tb = el("tbody");
+  const rows = changeData?.versions ?? [];
+  if (!rows.length) {
+    const tr = el("tr");
+    const td = el("td", "empty", t("nothing"));
+    td.colSpan = 4;
+    tr.appendChild(td);
+    tb.appendChild(tr);
+  }
+  for (const v of rows) {
+    const tr = el("tr");
+    tr.appendChild(el("td", "num", "#" + v.index));
+    const what = el("td", "metric-name", v.label);
+    what.dir = "auto";
+    tr.appendChild(what);
+    tr.appendChild(el("td", "mono", v.at.replace("T", " ").replace("+00:00", "")));
+    tr.appendChild(el("td", "num", v.index ? String(v.moved_count) : "—"));
+    tb.appendChild(tr);
+  }
+  table.appendChild(tb);
+}
 
 /* ---------- boot ---------- */
 (async function boot() {
@@ -333,4 +607,5 @@ async function loadChanges() {}
   applyLang();
   renderEntitySelect();
   await loadGrid();
+  await loadChanges();
 })();

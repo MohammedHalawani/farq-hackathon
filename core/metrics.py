@@ -180,7 +180,7 @@ def compute(u: University, a: Assignment) -> dict:
 
 
 SUMMARY_KEYS = [
-    ("avg_idle_hours_per_student_per_day", "Avg idle hours / student / day", "lower"),
+    ("avg_idle_hours_per_student_per_day", "Avg idle time / student / day (min)", "lower"),
     ("pct_students_conflict_free", "% students conflict-free", "higher"),
     ("pct_repeaters_conflict_free", "% repeaters conflict-free", "higher"),
     ("total_student_conflicts", "Total student conflicts", "lower"),

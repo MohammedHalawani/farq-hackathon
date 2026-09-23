@@ -217,8 +217,58 @@ def changes() -> dict:
     return {"versions": SESSION.change_log(), "constraints": SESSION.constraints}
 
 
-class UndoBody(BaseModel):
-    pass
+class Message(BaseModel):
+    message: str
+
+
+@app.post("/api/agent/message")
+def agent_message(body: Message) -> dict:
+    from agent.agent import AGENT
+
+    with SESSION.lock:
+        SESSION.chat.append({"role": "admin", "text": body.message})
+        try:
+            out = AGENT.handle(body.message, SESSION, SESSION.history)
+        except Exception as e:
+            note = f"The assistant failed: {type(e).__name__}: {e}"
+            SESSION.chat.append({"role": "agent", "text": note})
+            return {"reply": note, "card": None, "error": True}
+        SESSION.history = out["history"]
+        SESSION.pending = out["card"]
+        SESSION.chat.append({"role": "agent", "text": out["reply"]})
+        return {"reply": out["reply"], "card": out["card"], "offline": out["offline"]}
+
+
+@app.get("/api/agent/state")
+def agent_state() -> dict:
+    return {"chat": SESSION.chat, "card": SESSION.pending}
+
+
+@app.post("/api/agent/reset")
+def agent_reset() -> dict:
+    with SESSION.lock:
+        SESSION.chat, SESSION.history, SESSION.pending = [], [], None
+    return {"ok": True}
+
+
+class ApplyBody(BaseModel):
+    constraint: dict | None = None
+
+
+@app.post("/api/changes/apply")
+def apply_change(body: ApplyBody) -> dict:
+    from agent.describe import short_label
+
+    with SESSION.lock:
+        c = body.constraint or (SESSION.pending or {}).get("constraint")
+        if c is None:
+            raise HTTPException(400, "Nothing to apply.")
+        if SESSION.current is None:
+            raise HTTPException(409, "Generate a schedule first.")
+        result = SESSION.apply_constraint(c, short_label(SESSION.u, c))
+        if result["ok"]:
+            SESSION.pending = None
+        return result
 
 
 @app.post("/api/changes/undo")

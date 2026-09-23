@@ -42,6 +42,8 @@ class Session:
         self.versions: list[Version] = []
         self.constraints: list[dict] = []
         self.pending: dict | None = None
+        self.chat: list[dict] = []
+        self.history: list = []
 
     # --- schedules -----------------------------------------------------
     @property
