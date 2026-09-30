@@ -190,11 +190,12 @@ numbers below are from a run on 30/09/2026:
 2. **Agent**: `لا محاضرات من ١٢ إلى ١` → a *Campus break* card (every day,
    12:00–13:00). Confirm. It is checked for feasibility (under a second) and
    saved as a setup rule, listed under step 2 on the Data tab.
-3. **Build the timetable** (~40 s; 39.8 s on the reference run) next to
+3. **Build the timetable** (~40 s; 39.4 s on the reference run) next to
    «يدويًا: أسبوع إلى أسبوع ونص». It jumps to the Timetable, where no class sits
-   at 12:00 (0 of 120 meetings; the downloaded Excel confirms it). With the break,
-   students with a 2h+ gap go from **31.0% (baseline) to 0.7% (balanced)**, and
-   students with any gap from 80.7% to 21.3%.
+   at 12:00 (0 of 120 meetings; the downloaded Excel confirms it). The baseline
+   keeps the break free too, as a coordinator would, so the comparison is like
+   for like: students with a 2h+ gap go from **32.7% (baseline) to 0.7%
+   (balanced)**, and students with any gap from 82.0% to 21.3%.
 4. **Agent**: `ليش عند عمارة المستوى الثاني فراغ يوم الاثنين؟`. Before the break
    rule this cohort had 11:00–14:00 empty. Now the only empty hour is the break,
    and the answer says so: *«لا يوجد فراغ فعلي في جدول عمارة المستوى الثاني يوم
@@ -205,17 +206,19 @@ numbers below are from a run on 30/09/2026:
    which tries every neighbouring class in every gap hour: each move would clash
    with 15–18 students' other classes, and 12:00 is the break, not a gap.
 6. **Agent**: `د. أحمد ما يقدر الثلاثاء بعد ٢`. Two instructors are named أحمد,
-   so it asks which. Answer `د. أحمد العلي`, confirm the card, and the timetable
-   re-solves in ~7 s, **moving 6 meetings out of 120**.
+   so it asks which, with a button for each: **د. أحمد العلي** and **د. أحمد
+   الغامدي**. The names on the buttons come from the database through the
+   resolver, never from the model's text. Click د. أحمد العلي, confirm the card,
+   and the timetable re-solves in ~7 s, **moving 6 meetings out of 120**.
 7. **Timetable** → **Download timetable (Excel)**.
 8. **Change log** → **Undo**. The change is gone and the setup rule stays.
 
 **A campus break is not a gap.** Break hours are taken out of the day before
 idle time is measured, in the metrics, the solver's objective and the gap
 explanations. A student with classes at 11:00 and 13:00 and a break at 12:00
-has no gap. The baseline is measured the same way, but it is the manual-style
-comparator and does not respect the break itself. Without a break every number
-and schedule is exactly as before.
+has no gap. The baseline never places a class in the break and is measured the
+same way. Without a break every number and schedule, the baseline's included,
+is exactly as before.
 
 Wording from the agent varies a little between runs; the numbers do not.
 
