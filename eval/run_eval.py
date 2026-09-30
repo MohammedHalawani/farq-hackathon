@@ -1,6 +1,9 @@
 """Score the agent's tool choices against eval/requests.json.
 
   uv run python eval/run_eval.py [--limit N] [--workers N]
+
+Three workers by default: more trips Ollama cloud's concurrency limit (429),
+and those errors score as failures.
 """
 
 from __future__ import annotations
@@ -173,7 +176,7 @@ def run_one(req: dict) -> dict:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int)
-    ap.add_argument("--workers", type=int, default=6)
+    ap.add_argument("--workers", type=int, default=3)
     args = ap.parse_args()
 
     ok, why = AGENT.available()
