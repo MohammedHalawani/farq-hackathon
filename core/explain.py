@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from core.metrics import (
     ACCESSIBLE_TRANSIT_LIMIT,
+    break_slots,
     student_day_meetings,
     student_idle_slots,
 )
@@ -163,7 +164,10 @@ def blockers(
     return out
 
 
-def _cost_of_move(u: University, a: Assignment, mid: str, slot: int, room: str) -> dict:
+def _cost_of_move(
+    u: University, a: Assignment, mid: str, slot: int, room: str,
+    breaks: frozenset[int] = frozenset(),
+) -> dict:
     """What the move would cost, counted rather than guessed."""
     trial = a.copy()
     trial.slot[mid], trial.room[mid] = slot, room
@@ -183,8 +187,8 @@ def _cost_of_move(u: University, a: Assignment, mid: str, slot: int, room: str) 
                 if abs(p - slot_period(slot)) == 1 and u.walk_minutes(r, room) > ACCESSIBLE_TRANSIT_LIMIT:
                     new_transit += 1
     affected = sorted(set(u.students_of_section[sec.id]))
-    idle_before = sum(student_idle_slots(u, a, sid) for sid in affected)
-    idle_after = sum(student_idle_slots(u, trial, sid) for sid in affected)
+    idle_before = sum(student_idle_slots(u, a, sid, breaks) for sid in affected)
+    idle_after = sum(student_idle_slots(u, trial, sid, breaks) for sid in affected)
     return {
         "room": room,
         "new_student_clashes": new_clashes,
@@ -214,16 +218,36 @@ def explain_gap(
             "note": "There is no gap: fewer than two classes that day.",
         }
     periods = sorted({m["period"] for m in meetings})
-    gaps = [p for p in range(periods[0], periods[-1] + 1) if p not in periods]
+    # a campus-break hour is nobody's gap, though it can still be the reason
+    # a class could not move
+    breaks = break_slots(constraints)
+    gaps = [
+        p for p in range(periods[0], periods[-1] + 1)
+        if p not in periods and slot_id(day, p) not in breaks
+    ]
+    inside_breaks = [
+        p for p in range(periods[0], periods[-1] + 1)
+        if p not in periods and slot_id(day, p) in breaks
+    ]
     if not gaps:
         return {
             "entity_id": entity_id,
             "day": DAYS[day],
             "gap_hours": [],
-            "note": "There is no gap that day.",
+            "note": "There is no gap that day."
+            + (
+                f" The empty hour{'s' if len(inside_breaks) > 1 else ''} at "
+                f"{', '.join(hour(p) for p in inside_breaks)} "
+                "is the confirmed campus break, which is not a gap."
+                if inside_breaks else ""
+            ),
         }
 
-    movable = [m for m in meetings if m["period"] in (min(gaps) - 1, max(gaps) + 1)]
+    # the classes either side of the gap: the last before it, the first after
+    # (next to it, unless a break sits in between)
+    before = max(p for p in periods if p < min(gaps))
+    after = min(p for p in periods if p > max(gaps))
+    movable = [m for m in meetings if m["period"] in (before, after)]
     findings = []
     for m in movable:
         sec = u.section_by_id[u.meeting_by_id[m["meeting_id"]].section_id]
@@ -243,7 +267,7 @@ def explain_gap(
             if not why:
                 rooms, _ = _room_options(u, a, constraints, m["meeting_id"], slot)
                 best = min(
-                    (_cost_of_move(u, a, m["meeting_id"], slot, r) for r in rooms),
+                    (_cost_of_move(u, a, m["meeting_id"], slot, r, breaks) for r in rooms),
                     key=lambda c: (
                         c["new_accessibility_transit_breaches"],
                         c["new_student_clashes"],
@@ -280,6 +304,12 @@ def explain_gap(
         ),
         "gap_hours": [hour(g) for g in gaps],
         "gap_length_hours": len(gaps),
+        **(
+            {"campus_break_hours": [hour(p) for p in inside_breaks],
+             "campus_break_note": "a confirmed campus break: nobody has class then, "
+             "so it is not counted as a gap and no class can move into it"}
+            if inside_breaks else {}
+        ),
         "classes_that_day": [
             {"hour": hour(m["period"]), "room": m["room"], "meeting_id": m["meeting_id"]}
             for m in meetings

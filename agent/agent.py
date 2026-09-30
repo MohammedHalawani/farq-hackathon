@@ -337,7 +337,7 @@ class Tools:
             }
         from core.metrics import compute
 
-        after = compute(self.s.u, r.assignment)
+        after = compute(self.s.u, r.assignment, self.s.constraints + [c])
         d = delta(self.s.current_metrics, after)
         moved = moved_meetings(self.s.current, r.assignment)
         self.card = {

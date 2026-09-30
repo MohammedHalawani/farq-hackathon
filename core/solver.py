@@ -5,7 +5,7 @@ from itertools import zip_longest
 
 from ortools.sat.python import cp_model
 
-from core.metrics import ACCESSIBLE_TRANSIT_LIMIT, COMFORT_WALK_LIMIT
+from core.metrics import ACCESSIBLE_TRANSIT_LIMIT, COMFORT_WALK_LIMIT, break_slots
 from core.warmstart import build as greedy_start
 from core.models import (
     N_DAYS,
@@ -226,6 +226,9 @@ def _build_model(
             model.Add(day_var[ms[0].id] < day_var[ms[1].id])
 
     groups = student_groups(u)
+    break_periods: dict[int, list[int]] = {}
+    for s_ in sorted(break_slots(constraints)):
+        break_periods.setdefault(slot_day(s_), []).append(slot_period(s_))
 
     adj_cache: dict[tuple[str, str], cp_model.IntVar] = {}
 
@@ -321,7 +324,18 @@ def _build_model(
                 y[mid][s] for mid in mids for s in y[mid] if slot_day(s) == d
             )
             idle = model.NewIntVar(0, N_PERIODS, f"idle_{id(g)}_{d}")
-            model.Add(idle >= last - first + 1 - count)
+            # a campus-break hour inside the span is nobody's gap; no class can
+            # sit in one, so each break hour between first and last is free time
+            inside = []
+            for b in break_periods.get(d, ()):
+                ib = model.NewBoolVar(f"brk_{id(g)}_{d}_{b}")
+                model.Add(first <= b).OnlyEnforceIf(ib)
+                model.Add(last >= b).OnlyEnforceIf(ib)
+                inside.append(ib)
+            if inside:
+                model.Add(idle >= last - first + 1 - count - sum(inside))
+            else:
+                model.Add(idle >= last - first + 1 - count)
             penalties.append((w["idle"] * g.size, idle))
 
     # --- soft: room waste
@@ -493,9 +507,11 @@ def solve(
     if base is not None:
         # repair the schedule we have before considering a rebuild
         starts.append(
-            greedy_start(u, allowed_slots, allowed_rooms, built.max_daily, w, keep=base)
+            greedy_start(u, allowed_slots, allowed_rooms, built.max_daily, w, keep=base,
+                         breaks=break_slots(constraints))
         )
-    starts.append(greedy_start(u, allowed_slots, allowed_rooms, built.max_daily, w))
+    starts.append(greedy_start(u, allowed_slots, allowed_rooms, built.max_daily, w,
+                               breaks=break_slots(constraints)))
     cur: Assignment | None = None
     cur_obj: int | None = None
     for cand in starts:

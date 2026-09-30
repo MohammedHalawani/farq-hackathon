@@ -9,6 +9,7 @@ from core.models import (
     Assignment,
     University,
     slot_day,
+    slot_id,
     slot_period,
 )
 
@@ -44,25 +45,53 @@ def student_conflicts(u: University, a: Assignment, student_id: str) -> int:
     return sum(c - 1 for c in seen.values() if c > 1)
 
 
-def student_idle_slots(u: University, a: Assignment, student_id: str) -> int:
+def break_slots(constraints: list[dict] | None) -> frozenset[int]:
+    """Slot ids of every campus break. Nobody teaches then, so an empty break
+    hour between two classes is not a gap: it is taken out of the day before
+    idle time is measured."""
+    out: set[int] = set()
+    for c in constraints or []:
+        if c["type"] == "campus_break":
+            for d in c.get("days") or range(N_DAYS):
+                out.update(slot_id(d, p) for p in c["slots"])
+    return frozenset(out)
+
+
+def _teaching_span(day: int, periods: list[int], breaks: frozenset[int]) -> list[int]:
+    """The hours from the first class to the last, break hours removed."""
+    return [
+        p for p in range(periods[0], periods[-1] + 1)
+        if p in periods or slot_id(day, p) not in breaks
+    ]
+
+
+def student_idle_slots(
+    u: University, a: Assignment, student_id: str, breaks: frozenset[int] = frozenset()
+) -> int:
     total = 0
-    for _, ms in student_day_meetings(u, a, student_id).items():
+    for day, ms in student_day_meetings(u, a, student_id).items():
         if len(ms) < 2:
             continue
         periods = sorted({p for p, _, _ in ms})
-        total += periods[-1] - periods[0] + 1 - len(periods)
+        if breaks:
+            total += len(_teaching_span(day, periods, breaks)) - len(periods)
+        else:
+            total += periods[-1] - periods[0] + 1 - len(periods)
     return total
 
 
-def student_longest_gap(u: University, a: Assignment, student_id: str) -> int:
-    """The longest single run of idle hours in the student's week."""
+def student_longest_gap(
+    u: University, a: Assignment, student_id: str, breaks: frozenset[int] = frozenset()
+) -> int:
+    """The longest single run of idle hours in the student's week. A break
+    hour neither counts towards a run nor ends it: it is not in the day."""
     worst = 0
-    for _, ms in student_day_meetings(u, a, student_id).items():
+    for day, ms in student_day_meetings(u, a, student_id).items():
         periods = sorted({p for p, _, _ in ms})
         if len(periods) < 2:
             continue
         run = 0
-        for p in range(periods[0], periods[-1] + 1):
+        for p in _teaching_span(day, periods, breaks):
             run = 0 if p in periods else run + 1
             worst = max(worst, run)
     return worst
@@ -212,15 +241,18 @@ class Metrics:
         return self.data[k]
 
 
-def compute(u: University, a: Assignment) -> dict:
+def compute(u: University, a: Assignment, constraints: list[dict] | None = None) -> dict:
+    """Every number the UI shows. `constraints` matter only for campus breaks,
+    which are not counted as idle time."""
+    breaks = break_slots(constraints)
     idle_per_student = {}
     conflicts_per_student = {}
     longest_gap = {}
     transits: list[int] = []
     for st in u.students:
-        idle_per_student[st.id] = student_idle_slots(u, a, st.id)
+        idle_per_student[st.id] = student_idle_slots(u, a, st.id, breaks)
         conflicts_per_student[st.id] = student_conflicts(u, a, st.id)
-        longest_gap[st.id] = student_longest_gap(u, a, st.id)
+        longest_gap[st.id] = student_longest_gap(u, a, st.id, breaks)
         transits.extend(student_transits(u, a, st.id))
 
     n = len(u.students)

@@ -12,6 +12,7 @@ from core.models import (
     Assignment,
     University,
     slot_day,
+    slot_id,
     slot_period,
 )
 
@@ -22,6 +23,7 @@ def build(
     max_daily: dict[str, int] | None = None,
     weights: dict[str, int] | None = None,
     keep: Assignment | None = None,
+    breaks: frozenset[int] = frozenset(),
 ) -> Assignment | None:
     """With `keep`, every placement in it that is still legal is held fixed and
     only the broken ones are re-placed — a repair, not a rebuild."""
@@ -44,11 +46,13 @@ def build(
     }
     access_students = {st.id for st in u.students if st.needs_accessibility}
 
-    def idle_of(day_map: dict[int, str]) -> int:
+    def idle_of(day_map: dict[int, str], day: int) -> int:
         if len(day_map) < 2:
             return 0
         ps = sorted(day_map)
-        return ps[-1] - ps[0] + 1 - len(ps)
+        free = sum(1 for p in range(ps[0], ps[-1] + 1)
+                   if p not in day_map and slot_id(day, p) in breaks) if breaks else 0
+        return ps[-1] - ps[0] + 1 - len(ps) - free
 
     todo: set[str] = {m.id for m in u.meetings}
     if keep is not None:
@@ -117,7 +121,7 @@ def build(
                         if not ok:
                             break
                         cost += w["idle"] * (
-                            idle_of({**day_map, p: r}) - idle_of(day_map)
+                            idle_of({**day_map, p: r}, d) - idle_of(day_map, d)
                         )
                     if not ok:
                         continue

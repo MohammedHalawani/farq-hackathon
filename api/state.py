@@ -90,6 +90,8 @@ class Session:
     def generate_all(self) -> dict:
         if not self.profiles:
             started = time.time()
+            # measure the baseline by the same rules: a campus break is not a gap
+            self.baseline_metrics = compute(self.u, self.baseline, self.constraints)
             self.progress = {
                 "stage": "solving",
                 "done": 0,
@@ -134,7 +136,7 @@ class Session:
                 raise BuildError(r.message or "No schedule satisfies these rules.")
             out = {
                 "assignment": r.assignment,
-                "metrics": compute(self.u, r.assignment),
+                "metrics": compute(self.u, r.assignment, self.constraints),
                 "objective": r.objective,
                 "seconds": round(r.wall_time, 1),
             }
@@ -151,10 +153,13 @@ class Session:
     def _cache_path(self, profile: str) -> Path:
         # the whole campus and the setup rules, not just the section ids: an
         # uploaded file can reuse S01..S60 and must not load the demo's schedule
+        parts = [profile, self._campus_key, self.constraints]
+        if any(c["type"] == "campus_break" for c in self.constraints):
+            # schedules built before a break stopped counting as idle; without a
+            # break the key, and so every existing cache entry, is unchanged
+            parts.append("break-not-idle")
         key = hashlib.sha256(
-            json.dumps(
-                [profile, self._campus_key, self.constraints], sort_keys=True, default=str
-            ).encode()
+            json.dumps(parts, sort_keys=True, default=str).encode()
         ).hexdigest()[:16]
         return CACHE / f"{profile}-{key}.json"
 
@@ -166,7 +171,7 @@ class Session:
         a = Assignment(raw["slot"], raw["room"])
         return {
             "assignment": a,
-            "metrics": compute(self.u, a),
+            "metrics": compute(self.u, a, self.constraints),
             "objective": raw["objective"],
             "seconds": raw["seconds"],
         }
@@ -205,7 +210,7 @@ class Session:
         self, label: str, constraint: dict | None, assignment: Assignment
     ) -> Version:
         before = self.current
-        metrics = compute(self.u, assignment)
+        metrics = compute(self.u, assignment, self.constraints)
         v = Version(
             index=len(self.versions),
             label=label,
