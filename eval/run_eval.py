@@ -1,6 +1,8 @@
 """Score the agent's tool choices against eval/requests.json.
 
   uv run python eval/run_eval.py [--limit N] [--workers N]
+  uv run python eval/run_eval.py --repeat 10 --ids 19,31      # pass rate per case
+  uv run python eval/run_eval.py --repeat 10 --time-cases     # every case naming a day or an hour
 
 Three workers by default: more trips Ollama cloud's concurrency limit (429),
 and those errors score as failures.
@@ -10,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
@@ -95,6 +98,11 @@ def grade(req: dict, out: dict) -> tuple[bool, str]:
             return False, "proposed a change instead of asking"
         if not reply:
             return False, "said nothing"
+        if "choices" in expect:
+            # the buttons come from the resolver: exactly these stored names
+            shown = [c["name"] for c in out.get("choices") or []]
+            if shown != expect["choices"]:
+                return False, f"buttons {shown}, expected {expect['choices']}"
         # It asked if it punctuated a question, if a lookup came back vague or
         # ambiguous, or if it answered without touching a tool at all.
         if "?" in reply or "؟" in reply or _needs_a_name(out) or not calls:
@@ -173,10 +181,58 @@ def run_one(req: dict) -> dict:
     return {**req, "ok": ok, "why": why, "reply": out.get("reply", "")}
 
 
+DAY_WORDS = re.compile(
+    r"sunday|monday|tuesday|wednesday|thursday|week|"
+    r"أحد|احد|اثنين|إثنين|ثلاثاء|أربعاء|اربعاء|خميس|اسبوع|أسبوع|بكرة",
+    re.IGNORECASE,
+)
+HOUR_WORDS = re.compile(
+    r"\b\d{1,2}\s*(?:am|pm)\b|\b(?:at|after|before)\s+\d|morning|afternoon|o'clock|"
+    r"الساعه|الساعة|صباح|الظهر|العصر|[٠-٩]|من\s*\d|إلى\s*\d",
+    re.IGNORECASE,
+)
+
+
+def _texts(req: dict) -> str:
+    return " ".join([req.get("text", "")] + [s.get("text", "") for s in req.get("steps", [])])
+
+
+def names_a_day_or_hour(req: dict) -> bool:
+    t = _texts(req)
+    return bool(DAY_WORDS.search(t) or HOUR_WORDS.search(t))
+
+
+def stability(requests: list[dict], repeat: int, workers: int) -> int:
+    """Run every case `repeat` times and print its pass rate."""
+    jobs = [r for r in requests for _ in range(repeat)]
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        results = list(pool.map(run_one, jobs))
+    by_id: dict[int, list] = defaultdict(list)
+    for r in results:
+        by_id[r["id"]].append(r)
+    worst = 0
+    print(f"{'case':>5}  {'pass':>6}  text")
+    for i in sorted(by_id):
+        rows = by_id[i]
+        n = sum(1 for r in rows if r["ok"])
+        flag = "" if n == len(rows) else "  <-"
+        print(f"  #{i:<3} {n:>2}/{len(rows):<3} {rows[0]['text'][:60]}{flag}")
+        for why in sorted({r["why"][:110] for r in rows if not r["ok"]}):
+            print(f"         {why}")
+        worst = max(worst, len(rows) - n)
+    total = sum(1 for r in results if r["ok"])
+    print(f"\n  {total}/{len(results)} runs passed across {len(by_id)} cases")
+    return 0 if worst == 0 else 1
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int)
     ap.add_argument("--workers", type=int, default=3)
+    ap.add_argument("--repeat", type=int, default=1, help="runs per case; prints pass rates")
+    ap.add_argument("--ids", help="comma-separated case ids")
+    ap.add_argument("--time-cases", action="store_true",
+                    help="only the cases whose text names a day or an hour")
     args = ap.parse_args()
 
     ok, why = AGENT.available()
@@ -185,11 +241,19 @@ def main() -> int:
         return 2
 
     requests = json.loads(REQUESTS.read_text())
+    if args.ids:
+        wanted = {int(x) for x in args.ids.split(",")}
+        requests = [r for r in requests if r["id"] in wanted]
+    if args.time_cases:
+        requests = [r for r in requests if names_a_day_or_hour(r)]
     if args.limit:
         requests = requests[: args.limit]
 
     print("Generating the schedule the agent will reason over …", flush=True)
     SESSION.generate_all()
+    if args.repeat > 1:
+        print(f"Running {len(requests)} cases x {args.repeat} on {MODEL} …\n", flush=True)
+        return stability(requests, args.repeat, args.workers)
     print(f"Running {len(requests)} requests on {MODEL} …\n", flush=True)
 
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
