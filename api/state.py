@@ -90,7 +90,13 @@ class Session:
     def generate_all(self) -> dict:
         if not self.profiles:
             started = time.time()
-            # measure the baseline by the same rules: a campus break is not a gap
+            # the baseline keeps a campus break free, as a coordinator would, and
+            # is measured by the same rules: like for like
+            if any(c["type"] == "campus_break" for c in self.constraints):
+                try:
+                    self.baseline = build_baseline(self.u, self.constraints)
+                except RuntimeError as e:
+                    raise BuildError(f"The manual-style baseline cannot keep the break free: {e}")
             self.baseline_metrics = compute(self.u, self.baseline, self.constraints)
             self.progress = {
                 "stage": "solving",

@@ -149,3 +149,35 @@ def test_break_only_on_named_days():
     thursday = {"type": "campus_break", "days": [4], "slots": [6, 7]}
     assert break_slots([thursday]) == {slot_id(4, 6), slot_id(4, 7)}
     assert break_slots([{"type": "room_closed", "room_id": "B12"}]) == frozenset()
+
+
+# --- the baseline keeps the break free ----------------------------------------
+
+# sha256 of the demo baseline's (slot, room) on main
+MAIN_BASELINE_HASH = "48b4bc3af8fabca34e03ddcc6f9374d68298d4e6426220d048ec49e49aa801bb"
+
+
+def _fingerprint(a: Assignment) -> str:
+    import hashlib
+    import json
+
+    return hashlib.sha256(
+        json.dumps([sorted(a.slot.items()), sorted(a.room.items())]).encode()
+    ).hexdigest()
+
+
+def test_baseline_without_a_break_is_byte_identical_to_main():
+    u = generate()
+    assert _fingerprint(build_baseline(u)) == MAIN_BASELINE_HASH
+    assert _fingerprint(build_baseline(u, [])) == MAIN_BASELINE_HASH
+    assert _fingerprint(build_baseline(u, [{"type": "room_closed", "room_id": "B12"}])) \
+        == MAIN_BASELINE_HASH
+
+
+def test_baseline_never_uses_a_break_slot():
+    u = generate()
+    thursday = {"type": "campus_break", "days": [4], "slots": [6, 7]}
+    for rule in (NOON, thursday):
+        a = build_baseline(u, [rule])
+        assert not set(a.slot.values()) & break_slots([rule])
+        assert len(a.slot) == len(u.meetings)

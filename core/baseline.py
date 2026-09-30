@@ -12,10 +12,14 @@ entirely.
 
 from __future__ import annotations
 
+from core.metrics import break_slots
 from core.models import N_SLOTS, Assignment, University, slot_day
 
 
-def build_baseline(u: University) -> Assignment:
+def build_baseline(u: University, constraints: list[dict] | None = None) -> Assignment:
+    """`constraints` matter only for campus breaks, which a coordinator leaves
+    free by hand too. Every other rule is the optimiser's job, not this one's."""
+    breaks = break_slots(constraints)
     slot: dict[str, int] = {}
     room: dict[str, str] = {}
 
@@ -42,15 +46,15 @@ def build_baseline(u: University) -> Assignment:
         for m in u.meetings_of_section[sec.id]:
             # first pass keeps the level below clear; the second gives that up
             spot = _first_fit(u, sec, rooms, used_days, busy_instructor,
-                              busy_room, busy_cohort, near)
+                              busy_room, busy_cohort, near, breaks)
             if spot is None:
                 spot = _first_fit(u, sec, rooms, used_days, busy_instructor,
-                                  busy_room, busy_cohort, set())
+                                  busy_room, busy_cohort, set(), breaks)
             if spot is None:
                 # a level with more meetings than hours: clash it rather than fail,
                 # the way a hand-built timetable would
                 spot = _first_fit(u, sec, rooms, used_days, busy_instructor,
-                                  busy_room, {}, set())
+                                  busy_room, {}, set(), breaks)
             if spot is None:
                 raise RuntimeError(f"baseline could not place {m.id}")
             s, r = spot
@@ -64,9 +68,10 @@ def build_baseline(u: University) -> Assignment:
     return Assignment(slot, room)
 
 
-def _first_fit(u, sec, rooms, used_days, busy_instructor, busy_room, busy_cohort, near):
+def _first_fit(u, sec, rooms, used_days, busy_instructor, busy_room, busy_cohort, near,
+               breaks=frozenset()):
     for s in range(N_SLOTS):
-        if slot_day(s) in used_days:
+        if slot_day(s) in used_days or s in breaks:
             continue
         if busy_instructor.get((sec.instructor_id, s)):
             continue
