@@ -181,7 +181,8 @@ only, and `prefers-reduced-motion` collapses all of it to a crossfade.
 
 ## Demo
 
-The pipeline, from a fresh clone (`rm -rf .cache`), about four minutes:
+The pipeline, from a fresh clone (`rm -rf .cache`), about four minutes. The
+numbers below are from a run on 30/09/2026:
 
 1. **Data** tab → **Download the template**, then drag it back onto the upload
    box. The report shows 16 levels, 40 courses, 60 sections, 300 students,
@@ -189,22 +190,34 @@ The pipeline, from a fresh clone (`rm -rf .cache`), about four minutes:
 2. **Agent**: `لا محاضرات من ١٢ إلى ١` → a *Campus break* card (every day,
    12:00–13:00). Confirm. It is checked for feasibility (under a second) and
    saved as a setup rule, listed under step 2 on the Data tab.
-3. **Build the timetable** (~40 s) next to «يدويًا: أسبوع إلى أسبوع ونص». It
-   jumps to the Timetable, where no class sits at 12:00 (0 of 120 meetings; the
-   downloaded Excel confirms it).
-4. **Agent**: `ليش عند عمارة المستوى الثاني فراغ يوم الاثنين؟`. AR-L2 has 11:00–14:00
-   empty on Monday. The answer comes from `core/explain.py`: one of the
-   reasons is the campus break the coordinator just added.
-5. **Agent**: `د. أحمد ما يقدر الثلاثاء بعد ٢`. Two instructors are named أحمد,
+3. **Build the timetable** (~40 s; 39.8 s on the reference run) next to
+   «يدويًا: أسبوع إلى أسبوع ونص». It jumps to the Timetable, where no class sits
+   at 12:00 (0 of 120 meetings; the downloaded Excel confirms it). With the break,
+   students with a 2h+ gap go from **31.0% (baseline) to 0.7% (balanced)**, and
+   students with any gap from 80.7% to 21.3%.
+4. **Agent**: `ليش عند عمارة المستوى الثاني فراغ يوم الاثنين؟`. Before the break
+   rule this cohort had 11:00–14:00 empty. Now the only empty hour is the break,
+   and the answer says so: *«لا يوجد فراغ فعلي في جدول عمارة المستوى الثاني يوم
+   الاثنين؛ الفاصل الموجود في الساعة 12:00 هو استراحة الحرم الجامعي …، ولا يُحسب
+   كفراغ.»*
+5. **Agent**: `ليش عند حاسب المستوى الثالث فراغ يوم الأحد؟`. A real gap: CS-L3
+   has 10:00–11:00 empty on Sunday. The answer comes from `core/explain.py`,
+   which tries every neighbouring class in every gap hour: each move would clash
+   with 15–18 students' other classes, and 12:00 is the break, not a gap.
+6. **Agent**: `د. أحمد ما يقدر الثلاثاء بعد ٢`. Two instructors are named أحمد,
    so it asks which. Answer `د. أحمد العلي`, confirm the card, and the timetable
-   re-solves in ~7 s, **moving 5 meetings out of 120**.
-6. **Timetable** → **Download timetable (Excel)**.
-7. **Change log** → **Undo**. The change is gone and the setup rule stays.
+   re-solves in ~7 s, **moving 6 meetings out of 120**.
+7. **Timetable** → **Download timetable (Excel)**.
+8. **Change log** → **Undo**. The change is gone and the setup rule stays.
 
-One honest caveat: the gap metrics count a campus break hour as idle, like any
-other empty hour between two classes. With the 12–1 break, balanced goes from
-0.7% to 2.3% of students with a 2h+ gap. The objective was deliberately left
-unchanged.
+**A campus break is not a gap.** Break hours are taken out of the day before
+idle time is measured, in the metrics, the solver's objective and the gap
+explanations. A student with classes at 11:00 and 13:00 and a break at 12:00
+has no gap. The baseline is measured the same way, but it is the manual-style
+comparator and does not respect the break itself. Without a break every number
+and schedule is exactly as before.
+
+Wording from the agent varies a little between runs; the numbers do not.
 
 The optimiser story on the untouched demo campus (no setup rules). Ask the
 questions before making the changes: a change reshuffles the schedule, so a
@@ -271,7 +284,7 @@ constraints, setup rules (campus breaks, lab courses), what-ifs and questions, w
 transliterations of Arabic names, typos and dialect.
 
 ```bash
-uv run python eval/run_eval.py
+uv run python eval/run_eval.py          # 3 workers; more trips Ollama cloud's 429 limit
 ```
 
 Current result on `gpt-oss:120b-cloud`: **60/60**. The original 50 have been
