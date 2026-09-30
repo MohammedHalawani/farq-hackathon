@@ -698,6 +698,8 @@ async function sendMessage(text) {
     });
     pending.querySelector(".msg__body").textContent = out.reply;
     if (out.choices?.length) pending.appendChild(choiceButtons(out.choices));
+    // the reply and its buttons arrive after the placeholder: keep them in view
+    $("#chat-log").scrollTop = $("#chat-log").scrollHeight;
     state.pending = out.card || null;
     if (out.card && out.card.kind === "what_if" && out.card.moves) {
       state.moves = out.card.moves;
