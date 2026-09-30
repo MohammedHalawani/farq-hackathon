@@ -620,6 +620,59 @@ def compose(summaries: list[str], model_reply: str, u) -> str:
     return summary
 
 
+RETRY_NOTE = (
+    "Check: your last reply says a rule was proposed, but you called no tool, so "
+    "nothing was proposed and there is no confirmation card. Call propose_constraint "
+    "now (or what_if if the request was a hypothetical). Respond with the tool call."
+)
+NOTHING_PROPOSED = {
+    "ar": "لم يُقترح أي تغيير. هل يمكن إعادة صياغة الطلب؟",
+    "en": "Nothing was proposed. Could you rephrase the request?",
+}
+PROPOSED = {
+    "ar": "القاعدة مقترحة وبانتظار تأكيدك في البطاقة.",
+    "en": "The rule is proposed and waits for your confirmation on the card.",
+}
+
+# Past-tense claims that a rule now exists, after folding hamza and taa marbuta.
+_CLAIMS_AR = (
+    "اقترحت", "قمت باقتراح", "تم اقتراح", "قمت بانشاء", "تم انشاء", "انشات",
+    "بطاقه التاكيد", "بانتظار تاكيد", "في انتظار تاكيد", "بانتظار التاكيد",
+    "في انتظار التاكيد", "بانتظار موافقت", "في انتظار موافقت",
+)
+_CLAIMS_EN = re.compile(
+    r"\b(?:i|we)(?:'ve| have)?\s+(?:just\s+)?(?:proposed|created|added|drafted|submitted)\b"
+    r"|\bproposed (?:a|the|this|your) (?:rule|constraint|change)\b"
+    r"|\bconfirmation card\b"
+    r"|\b(?:awaiting|pending|waiting for) (?:your )?(?:confirmation|approval)\b",
+    re.IGNORECASE,
+)
+
+
+def _fold_ar(text: str) -> str:
+    text = re.sub("[\u064b-\u0652\u0640]", "", text)          # diacritics, tatweel
+    text = re.sub("[إأآ]", "ا", text)
+    return text.replace("ة", "ه").replace("ى", "ي")
+
+
+def claims_proposal(reply: str) -> bool:
+    """True when the reply says a rule was proposed or awaits confirmation."""
+    if not reply:
+        return False
+    if _CLAIMS_EN.search(reply):
+        return True
+    folded = _fold_ar(reply)
+    return any(c in folded for c in _CLAIMS_AR)
+
+
+def _asking(tools) -> bool:
+    """It is legitimately asking which one was meant: a lookup was ambiguous,
+    vague or empty, so no card is expected yet."""
+    return bool(tools.choices) or any(
+        l["vague"] or l["count"] != 1 for l in tools.lookups
+    )
+
+
 def _recent(history: list) -> list:
     """Keep the tail of the conversation, cut at a clean user turn so a tool
     result is never separated from the call that produced it."""
@@ -666,23 +719,11 @@ class Agent:
             )
         return True, ""
 
-    def handle(self, message: str, session, history: list, tools=None) -> dict:
-        ok, why = self.available()
-        if not ok:
-            return {"reply": why, "card": None, "history": history, "offline": True,
-                    "calls": [], "lookups": [], "tools": tools or Tools(session),
-                    "overlay": None, "choices": None}
-
-        tools = tools or Tools(session)
-        messages = _recent(history) + [{"role": "user", "content": message}]
-        # tool results are in English; without this the model echoes them back
-        # to an Arabic question in English
-        lang = "Arabic" if len(_ARABIC.findall(message)) > len(_LATIN.findall(message)) else "English"
-        system = SYSTEM + f"\n\nThe administrator's latest message is in {lang}. Reply in {lang}."
-        tools.lang = "ar" if lang == "Arabic" else "en"
+    def _loop(self, system: str, messages: list, tools, require_tool: bool = False) -> str:
+        """Let the model call tools until it answers in words. With
+        `require_tool`, a first answer that calls no tool ends the loop empty."""
         reply = ""
-
-        for _ in range(MAX_STEPS):
+        for step in range(MAX_STEPS):
             response = self.client.chat(
                 model=MODEL,
                 messages=[{"role": "system", "content": system}] + messages,
@@ -698,8 +739,10 @@ class Agent:
                     **({"tool_calls": msg["tool_calls"]} if msg.get("tool_calls") else {}),
                 }
             )
-            reply = msg.get("content") or reply
             calls = msg.get("tool_calls") or []
+            if require_tool and step == 0 and not calls:
+                return ""
+            reply = msg.get("content") or reply
             if not calls:
                 break
             for call in calls:
@@ -717,6 +760,23 @@ class Agent:
                 messages.append(
                     {"role": "tool", "tool_name": fn["name"], "content": payload}
                 )
+        return reply
+
+    def handle(self, message: str, session, history: list, tools=None) -> dict:
+        ok, why = self.available()
+        if not ok:
+            return {"reply": why, "card": None, "history": history, "offline": True,
+                    "calls": [], "lookups": [], "tools": tools or Tools(session),
+                    "overlay": None, "choices": None}
+
+        tools = tools or Tools(session)
+        messages = _recent(history) + [{"role": "user", "content": message}]
+        # tool results are in English; without this the model echoes them back
+        # to an Arabic question in English
+        lang = "Arabic" if len(_ARABIC.findall(message)) > len(_LATIN.findall(message)) else "English"
+        system = SYSTEM + f"\n\nThe administrator's latest message is in {lang}. Reply in {lang}."
+        tools.lang = "ar" if lang == "Arabic" else "en"
+        reply = self._loop(system, messages, tools)
 
         if not (reply or "").strip():
             # It ran out of steps without writing an answer: ask once more with
@@ -728,6 +788,17 @@ class Agent:
                 options={"temperature": 0},
             )
             reply = final["message"].get("content") or ""
+
+        if tools.card is None and claims_proposal(reply) and not _asking(tools):
+            # It says it proposed a rule but called no tool: nothing exists for
+            # the administrator to confirm. Say so, and demand the call once.
+            messages.append({"role": "user", "content": RETRY_NOTE})
+            again = self._loop(system, messages, tools, require_tool=True)
+            if tools.card is None:
+                reply = NOTHING_PROPOSED[tools.lang]
+            else:
+                reply = again if (again or "").strip() and not _asking(tools) \
+                    else PROPOSED[tools.lang]
 
         reply = (reply or "").strip()
         if tools.summaries:
