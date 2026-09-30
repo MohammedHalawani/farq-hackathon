@@ -129,3 +129,14 @@ def test_cache_key_sees_more_than_section_ids():
     assert campus_key(u) == campus_key(v), "a faithful round-trip shares the cache"
     v.sections[0].enrollment += 1
     assert campus_key(u) != campus_key(v), "same ids, different campus, different key"
+
+
+def test_timetable_export_has_every_meeting_and_a_sheet_per_level():
+    from data.excel_io import export_timetable
+
+    u = generate()
+    wb = open_xlsx(io.BytesIO(export_timetable(u, build_baseline(u))))
+    ws = wb.worksheets[0]
+    assert ws.sheet_view.rightToLeft
+    assert ws.max_row - 1 == len(u.meetings)
+    assert set(u.cohorts) <= {w.title for w in wb.worksheets}

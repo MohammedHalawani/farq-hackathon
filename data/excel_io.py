@@ -834,3 +834,71 @@ def export_template(u: University) -> bytes:
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+
+def export_timetable(u: University, a) -> bytes:
+    """The finished timetable: one row per meeting, the per-section form the
+    coordinator fills in today, then one day × hour grid per level."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "الجدول (Timetable)"
+    ws.sheet_view.rightToLeft = True
+    head = ["القسم", "المستوى", "المقرر", "رمز المقرر", "الشعبة", "المدرس",
+            "اليوم", "الوقت", "القاعة", "المبنى"]
+    ws.append(head)
+    buildings = {b.id: b.name_ar for b in u.buildings}
+    rows = []
+    for m in u.meetings:
+        if m.id not in a.slot:
+            continue
+        sec = u.section_by_id[m.section_id]
+        course = u.course_by_id[sec.course_id]
+        s, room = a.slot[m.id], u.room_by_id[a.room[m.id]]
+        rows.append((
+            (sec.department, sec.level, sec.id, slot_day(s), slot_period(s)),
+            [sec.department, sec.level, course.name_ar, course.id, sec.id,
+             u.instructor_by_id[sec.instructor_id].name, DAYS_AR[slot_day(s)],
+             _span(slot_period(s)), room.id, buildings.get(room.building_id, room.building_id)],
+        ))
+    for _, r in sorted(rows, key=lambda x: x[0]):
+        ws.append(r)
+    _style(ws, [10, 8, 28, 11, 9, 24, 11, 14, 10, 20])
+
+    for cohort in u.cohorts:
+        grid = wb.create_sheet(cohort[:31])
+        grid.sheet_view.rightToLeft = True
+        grid.append(["اليوم / الساعة"] + [_span(p) for p in range(N_PERIODS)])
+        cells: dict[tuple[int, int], list[str]] = {}
+        for m in u.meetings:
+            sec = u.section_by_id[m.section_id]
+            if m.id not in a.slot or cohort not in u.serving_cohorts.get(sec.id, {sec.cohort}):
+                continue
+            s = a.slot[m.id]
+            cells.setdefault((slot_day(s), slot_period(s)), []).append(
+                f"{u.course_by_id[sec.course_id].name_ar} · {sec.id} · {a.room[m.id]}"
+            )
+        for d in range(N_DAYS):
+            grid.append([DAYS_AR[d]] + [
+                "\n".join(sorted(cells.get((d, p), []))) for p in range(N_PERIODS)
+            ])
+        _style(grid, [14] + [26] * N_PERIODS)
+        for row in grid.iter_rows(min_row=2):
+            for c in row:
+                c.alignment = Alignment(wrap_text=True, vertical="top")
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def _span(period: int) -> str:
+    h = FIRST_HOUR + period
+    return f"{h:02d}:00–{h + 1:02d}:00"
+
+
+def _style(ws, widths: list[int]) -> None:
+    for cell in ws[1]:
+        cell.font, cell.fill = HEAD_FONT, HEAD_FILL
+        cell.alignment = Alignment(horizontal="center")
+    for i, w in enumerate(widths):
+        ws.column_dimensions[ws.cell(1, i + 1).column_letter].width = w
+    ws.freeze_panes = "B2"

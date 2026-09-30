@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from urllib.parse import unquote
 
 from email.parser import BytesParser
 from email.policy import HTTP
@@ -18,7 +19,7 @@ from core.metrics import (
     student_day_meetings,
 )
 from core.models import DAYS, DAYS_AR, FIRST_HOUR, N_PERIODS, slot_day, slot_period
-from data.excel_io import export_template, load_workbook
+from data.excel_io import export_template, export_timetable, load_workbook
 from data.generator import PERSONAS, generate as generate_demo
 
 WEB = Path(__file__).resolve().parent.parent / "web"
@@ -106,14 +107,33 @@ async def data_upload(request: Request) -> dict:
     if not body:
         raise HTTPException(400, "Empty upload.")
     data, name = _file_from(body, request.headers.get("content-type", ""))
+    name = unquote(request.headers.get("x-filename", "")) or name
     u, report = load_workbook(data)
     report["filename"] = name
     if u is None:
         # nothing replaced: the current campus stays loaded
         return {"ok": False, "report": report, "data": _data_state()}
     with SESSION.lock:
-        SESSION.load(u, is_demo=False, report=report, source=name)
+        try:
+            SESSION.load(u, is_demo=False, report=report, source=name)
+        except RuntimeError as e:
+            report["ok"] = False
+            report["errors"].append({
+                "sheet": None, "row": None,
+                "en": f"the data cannot be laid out at all: {e}",
+                "ar": f"تعذّر ترتيب البيانات في أي جدول: {e}",
+            })
+            return {"ok": False, "report": report, "data": _data_state()}
     return {"ok": True, "report": report, "data": _data_state(), "counts": meta()["counts"]}
+
+
+@app.get("/api/data/export")
+def data_export() -> Response:
+    """The current version of the timetable, ready to hand to the supervisor."""
+    if SESSION.current is None:
+        raise HTTPException(409, "No timetable built yet — build it first.")
+    v = len(SESSION.versions) - 1
+    return _xlsx(export_timetable(SESSION.u, SESSION.current), f"jadwal-timetable-v{v}.xlsx")
 
 
 @app.post("/api/data/reset")
