@@ -39,6 +39,9 @@ Call get_entity for every person, room, section or cohort the administrator name
 - 1 match    -> use that ID and carry straight on. Never ask the administrator
                to confirm a single match, and never ask again for something the
                lookup already answered.
+A department with a level ("عمارة المستوى الثاني", "BA year 3", "حاسب سنة أولى")
+names one cohort: send the department and the level together in one query. A
+department name is not a course.
 
 WHAT THE ADMINISTRATOR IS ASKING FOR
 - A rule to add ("X can't teach Tuesday afternoon", "close room B12", "د. ماجد
@@ -100,9 +103,10 @@ RAW_TOOLS = [
                     "type": "string",
                     "enum": ["instructor", "room", "course", "section", "cohort", "student"],
                     "description": (
-                        "Optional hint. A 'course' is a subject (C04, Networks); a "
-                        "'section' is one class group of it (S19); a 'cohort' is a "
-                        "department and level (BA-L3). Omit it if unsure."
+                        "Optional hint. A 'cohort' is a department and level "
+                        "(BA-L3, «عمارة المستوى الثاني»): keep the department in the "
+                        "query. A 'course' is one named subject (C04, Networks); a "
+                        "'section' is one class group of it (S19). Omit it if unsure."
                     ),
                 },
             },
@@ -290,7 +294,14 @@ class Tools:
             "status": "awaiting_confirmation",
             "constraint": c,
             "card": self.card["describe"],
-            "note": "Shown to the administrator as a confirmation card. Not applied.",
+            "note": "Shown to the administrator as a confirmation card. Not applied. "
+            + (
+                "No timetable is built yet: once confirmed this is a setup rule, "
+                "applied when the timetable is built."
+                if self.s.current is None
+                else "The timetable is already built: once confirmed, it is re-solved "
+                "now with the smallest possible change. Do not say it waits for a build."
+            ),
         }
 
     def t_what_if(self, constraint: dict) -> dict:

@@ -118,6 +118,9 @@ class Session:
             }
         if not self.versions:
             self._push("Initial schedule", None, self.profiles[self.active_profile]["assignment"])
+            # what the model saw before the build ("no timetable yet") is stale
+            # now; the visible chat stays, the model's context starts over
+            self.history = []
         return self.comparison()
 
     def _solve_profile(self, profile: str) -> dict:
