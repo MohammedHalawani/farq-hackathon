@@ -46,11 +46,36 @@ def test_from_and_to():
     assert _brk(**{"from": "10", "to": "12"}) == [2, 3]
 
 
-def test_after_is_from_that_hour_to_the_end_of_the_day():
-    assert _unavailable(**{"from": "14:00"}) == [6, 7]         # "after 2"
-    assert _unavailable(**{"from": "٢"}) == [6, 7]             # «بعد ٢»
-    assert _brk(**{"from": "12:00"}) == [4, 5, 6, 7]           # afternoon
-    assert _brk(**{"from": "14:00", "to": ""}) == [6, 7]
+def test_at_is_exactly_one_hour():
+    assert _brk(at="08:00") == [0]                              # "at 8"
+    assert _brk(at="٨") == [0]                                  # «الساعة ٨»
+    assert _unavailable(at="2pm") == [6]
+    assert _brk(at="15:00") == [7]                              # the last hour
+    with pytest.raises(ValueError, match="when the teaching day ends"):
+        _brk(at="16:00")
+    with pytest.raises(ValueError, match="use `at` alone"):
+        _brk(at="08:00", to="10:00")
+
+
+def test_after_is_from_that_hour_to_the_end_of_the_day_said_explicitly():
+    assert _unavailable(**{"from": "14:00", "until_end_of_day": True}) == [6, 7]   # "after 2"
+    assert _unavailable(**{"from": "٢", "until_end_of_day": True}) == [6, 7]      # «بعد ٢»
+    assert _brk(**{"from": "12:00", "until_end_of_day": True}) == [4, 5, 6, 7]   # afternoon
+    with pytest.raises(ValueError, match="not both"):
+        _brk(**{"from": "12:00", "to": "13:00", "until_end_of_day": True})
+    with pytest.raises(ValueError, match="needs `from`"):
+        _brk(until_end_of_day=True)
+
+
+@pytest.mark.parametrize("bare", [{"from": "08:00"}, {"from": "14:00"}, {"from": "٨"},
+                                  {"from": "12:00", "to": ""},
+                                  {"from": "12:00", "until_end_of_day": False}])
+def test_a_bare_from_is_rejected_not_read_as_the_end_of_the_day(bare):
+    with pytest.raises(ValueError, match="use `at` for that one hour") as e:
+        _brk(**bare)
+    assert "until_end_of_day" in str(e.value) and "`to`" in str(e.value)
+    with pytest.raises(ValueError, match="use `at`"):
+        _unavailable(**bare)
 
 
 def test_before_is_from_the_start_of_the_day_to_that_hour():
@@ -79,7 +104,7 @@ def test_slots_still_accepted_and_clock_times_win():
 @pytest.mark.parametrize("times,why", [
     ({"from": "07:00"}, "outside the teaching day"),
     ({"to": "17:00"}, "outside the teaching day"),
-    ({"from": "16:00"}, "no teaching hour"),
+    ({"from": "16:00", "until_end_of_day": True}, "no teaching hour"),
     ({"from": "13:00", "to": "12:00"}, "not after"),
     ({"from": "12:00", "to": "12:00"}, "not after"),
     ({"from": "12:30"}, "not on the hour"),

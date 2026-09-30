@@ -101,18 +101,51 @@ def to_hour(v, what: str = "time") -> int:
     return h
 
 
+def _given(raw: dict, key: str) -> bool:
+    return raw.get(key) not in (None, "", False)
+
+
 def _hours_to_slots(raw: dict, whole_day) -> dict:
-    """`from` / `to` clock times -> `slots`, by code. A missing `from` is the
-    start of the day, a missing `to` its end. With neither and no `slots`,
-    `whole_day` is used (None: the rule must name its hours)."""
+    """Clock times -> `slots`, by code. Exactly one of these shapes:
+      at                       one hour: at 08:00 is 08:00-09:00
+      from + to                that range
+      to                       from the start of the day
+      from + until_end_of_day  "after X": to the end of the day, said explicitly
+    A `from` with nothing to end it is rejected rather than read as the end of
+    the day. With no times and no `slots`, `whole_day` is used (None: the rule
+    must name its hours)."""
     if not isinstance(raw, dict):
         return raw
     raw = dict(raw)
-    if "from" in raw or "to" in raw:
-        start = to_hour(raw.pop("from"), "from") if raw.get("from") not in (None, "") \
-            else (raw.pop("from", None), DAY_START)[1]
-        end = to_hour(raw.pop("to"), "to") if raw.get("to") not in (None, "") \
-            else (raw.pop("to", None), DAY_END)[1]
+    has = {k: _given(raw, k) for k in ("at", "from", "to", "until_end_of_day")}
+    for k in ("at", "from", "to", "until_end_of_day"):
+        value = raw.pop(k, None)
+        if has[k]:
+            has[k] = value
+    if has["at"]:
+        if has["from"] or has["to"] or has["until_end_of_day"]:
+            raise ValueError("use `at` alone for one hour, or `from` with `to` / "
+                             "`until_end_of_day` for a range, not both")
+        h = to_hour(has["at"], "at")
+        if h >= DAY_END:
+            raise ValueError(f"at {h:02d}:00 is when the teaching day ends; "
+                             f"the last hour starts at {DAY_END - 1:02d}:00")
+        raw["slots"] = [h - DAY_START]
+        return raw
+    if has["from"] or has["to"] or has["until_end_of_day"]:
+        if has["until_end_of_day"] and has["to"]:
+            raise ValueError("give `to` or `until_end_of_day`, not both")
+        if has["until_end_of_day"] and not has["from"]:
+            raise ValueError("`until_end_of_day` needs `from`, the hour it starts at")
+        # a bad clock time is the more useful message, so check it first
+        start = to_hour(has["from"], "from") if has["from"] else DAY_START
+        end = to_hour(has["to"], "to") if has["to"] else DAY_END
+        if has["from"] and not (has["to"] or has["until_end_of_day"]):
+            raise ValueError(
+                "`from` alone does not say how long: use `at` for that one hour "
+                "(\"at 8\"), `to` for a range, or `until_end_of_day: true` for "
+                "\"after\" (\"after 2\")"
+            )
         if start >= DAY_END:
             raise ValueError(f"from {start:02d}:00 leaves no teaching hour before "
                              f"{DAY_END:02d}:00")
@@ -121,7 +154,8 @@ def _hours_to_slots(raw: dict, whole_day) -> dict:
         raw["slots"] = list(range(start - DAY_START, end - DAY_START))
     elif "slots" not in raw:
         if whole_day is None:
-            raise ValueError("say which hours, with from and/or to (e.g. from 12:00 to 13:00)")
+            raise ValueError("say which hours: `at` for one hour, or `from` with `to` "
+                             "or `until_end_of_day`")
         raw["slots"] = whole_day
     return raw
 
@@ -258,18 +292,32 @@ CONSTRAINT_TOOL_SCHEMA = {
                 "every day."
             ),
         },
+        "at": {
+            "type": "string",
+            "description": (
+                'One single hour, 24-hour "HH:MM": "at 8" / «الساعة ٨» is "08:00" '
+                "and means 08:00-09:00. Use it alone, without from/to."
+            ),
+        },
         "from": {
             "type": "string",
             "description": (
-                'Start time, 24-hour "HH:MM", e.g. "14:00". Omit it to mean the '
-                "start of the teaching day (08:00)."
+                'Start of a range, 24-hour "HH:MM", e.g. "14:00". Always pair it '
+                "with `to`, or with until_end_of_day for \"after\"."
             ),
         },
         "to": {
             "type": "string",
             "description": (
-                'End time, 24-hour "HH:MM", e.g. "16:00". Omit it to mean the end '
-                "of the teaching day (16:00). For a whole day omit both."
+                'End of a range, 24-hour "HH:MM", e.g. "13:00". Without `from` the '
+                'range starts at 08:00 ("before 10" is to "10:00").'
+            ),
+        },
+        "until_end_of_day": {
+            "type": "boolean",
+            "description": (
+                'true for "after X" / «بعد X»: from `from` to the end of the '
+                "teaching day (16:00)."
             ),
         },
         "max_classes": {"type": "integer"},

@@ -80,14 +80,17 @@ built yet" until then — pass that on and tell the administrator to build first
 TIME
 Teaching days are Sunday to Thursday; Friday and Saturday are the weekend and do
 not exist. Give days by name ("Wednesday"); code converts them.
-The teaching day runs 08:00 to 16:00. Give hours as clock times with `from` and
-`to` (24-hour "HH:MM"); code converts them. Copy the times the administrator
-said; do not work anything out.
-- "after 2" / "بعد ٢" -> from "14:00" (leave out `to`: the end of the day).
-- "before 10" / "قبل ١٠" -> to "10:00" (leave out `from`: the start of the day).
-- "from 12 to 1" / "من ١٢ إلى ١" -> from "12:00", to "13:00".
-- "morning" / "الصباح" -> to "12:00". "afternoon" / "بعد الظهر" -> from "12:00".
-- A whole day -> leave out both."""
+The teaching day runs 08:00 to 16:00. Give hours as clock times (24-hour
+"HH:MM"); code converts them. Copy the times the administrator said; do not work
+anything out.
+- One hour, "at 8" / «الساعة ٨» -> at "08:00" (that hour only).
+- "after 2" / «بعد ٢» -> from "14:00", until_end_of_day true.
+- "before 10" / «قبل ١٠» -> to "10:00".
+- "from 12 to 1" / «من ١٢ إلى ١» -> from "12:00", to "13:00".
+- "morning" / «الصباح» -> to "12:00". "afternoon" / «بعد الظهر» -> from "12:00",
+  until_end_of_day true.
+- A whole day -> no times at all.
+Never give `from` alone: say where it ends with `to` or until_end_of_day."""
 
 RAW_TOOLS = [
     {

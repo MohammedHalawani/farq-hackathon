@@ -10,7 +10,7 @@ from data.generator import generate
 BREAK_CALL = {"content": "", "tool_calls": [{"function": {
     "name": "propose_constraint",
     "arguments": {"constraint": {"type": "campus_break", "days": ["Wednesday"],
-                                 "from": "12:00"}}}}]}
+                                 "from": "12:00", "until_end_of_day": True}}}}]}
 
 
 class FakeModel:
