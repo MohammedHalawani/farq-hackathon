@@ -61,7 +61,7 @@ WHAT THE ADMINISTRATOR IS ASKING FOR
 
 KINDS OF RULE
 - "No classes at X for anyone" / "لا محاضرات من ١٢ إلى ١" / a prayer or lunch break
-  for the whole campus -> campus_break with those slots, and the days only if the
+  for the whole campus -> campus_break with those hours, and the days only if the
   administrator named days (omit days for every day). It names no person, so do
   not call get_entity for it.
 - "Course X needs a lab" / "مادة X تحتاج معمل" -> course_needs_lab with the course
@@ -79,13 +79,15 @@ built yet" until then — pass that on and tell the administrator to build first
 
 TIME
 Teaching days are Sunday to Thursday; Friday and Saturday are the weekend and do
-not exist. Give days by name ("Wednesday"); code converts them. The teaching day
-is 8 one-hour slots:
-slot 0 = 08:00, slot 1 = 09:00 ... slot 7 = 15:00.
-- "after N o'clock" / "بعد الساعة N" includes the slot that starts at N.
-  "after 2pm" is slots 6,7. "after 12" is slots 4,5,6,7.
-- "before N o'clock" excludes the slot starting at N. "before 10am" is slots 0,1.
-- "morning" is slots 0-3, "afternoon" is slots 4-7, a whole day is slots 0-7."""
+not exist. Give days by name ("Wednesday"); code converts them.
+The teaching day runs 08:00 to 16:00. Give hours as clock times with `from` and
+`to` (24-hour "HH:MM"); code converts them. Copy the times the administrator
+said; do not work anything out.
+- "after 2" / "بعد ٢" -> from "14:00" (leave out `to`: the end of the day).
+- "before 10" / "قبل ١٠" -> to "10:00" (leave out `from`: the start of the day).
+- "from 12 to 1" / "من ١٢ إلى ١" -> from "12:00", to "13:00".
+- "morning" / "الصباح" -> to "12:00". "afternoon" / "بعد الظهر" -> from "12:00".
+- A whole day -> leave out both."""
 
 RAW_TOOLS = [
     {

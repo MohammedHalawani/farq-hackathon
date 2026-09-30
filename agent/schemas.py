@@ -6,7 +6,7 @@ import re
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from core.models import DAYS, DAYS_AR, N_DAYS, N_PERIODS
+from core.models import DAYS, DAYS_AR, FIRST_HOUR, N_DAYS, N_PERIODS
 
 
 def _fold(word: str) -> str:
@@ -62,6 +62,76 @@ def _day_alias(raw):
     return raw
 
 
+DAY_START, DAY_END = FIRST_HOUR, FIRST_HOUR + N_PERIODS   # 08:00, 16:00
+
+_CLOCK = re.compile(
+    r"^(\d{1,2})(?:[:.٫](\d{2}))?\s*"
+    r"(am|pm|a\.m\.|p\.m\.|ص|صباحا|صباحًا|م|مساء|مساءً|ظهرا|ظهرًا|عصرا|عصرًا)?$"
+)
+_PM = {"pm", "p.m.", "م", "مساء", "مساءً", "ظهرا", "ظهرًا", "عصرا", "عصرًا"}
+
+
+def to_hour(v, what: str = "time") -> int:
+    """A clock time as the model or a person writes it -> the hour, 8..16.
+    "14:00", "14", "2pm", "٢ م" and "٢" are all 14: with no am/pm, 1..7 means
+    the afternoon, since teaching starts at 08:00."""
+    if isinstance(v, bool):
+        raise ValueError(f"{what} '{v}' is not a time")
+    if isinstance(v, (int, float)) and float(v).is_integer():
+        text = str(int(v))
+    elif isinstance(v, str):
+        text = v.strip().lower().translate(str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789"))
+    else:
+        raise ValueError(f"{what} '{v}' is not a time")
+    m = _CLOCK.match(text)
+    if not m:
+        raise ValueError(f"{what} '{v}' is not a clock time; write it like \"14:00\"")
+    h, minutes, mark = int(m.group(1)), m.group(2), m.group(3)
+    if minutes not in (None, "00"):
+        raise ValueError(f"{what} '{v}' is not on the hour; classes start on the hour")
+    if mark in _PM and h < 12:
+        h += 12
+    elif mark is None and 1 <= h < DAY_START:
+        h += 12
+    if not DAY_START <= h <= DAY_END:
+        raise ValueError(
+            f"{what} '{v}' is outside the teaching day, "
+            f"{DAY_START:02d}:00–{DAY_END:02d}:00"
+        )
+    return h
+
+
+def _hours_to_slots(raw: dict, whole_day) -> dict:
+    """`from` / `to` clock times -> `slots`, by code. A missing `from` is the
+    start of the day, a missing `to` its end. With neither and no `slots`,
+    `whole_day` is used (None: the rule must name its hours)."""
+    if not isinstance(raw, dict):
+        return raw
+    raw = dict(raw)
+    if "from" in raw or "to" in raw:
+        start = to_hour(raw.pop("from"), "from") if raw.get("from") not in (None, "") \
+            else (raw.pop("from", None), DAY_START)[1]
+        end = to_hour(raw.pop("to"), "to") if raw.get("to") not in (None, "") \
+            else (raw.pop("to", None), DAY_END)[1]
+        if start >= DAY_END:
+            raise ValueError(f"from {start:02d}:00 leaves no teaching hour before "
+                             f"{DAY_END:02d}:00")
+        if end <= start:
+            raise ValueError(f"to {end:02d}:00 is not after from {start:02d}:00")
+        raw["slots"] = list(range(start - DAY_START, end - DAY_START))
+    elif "slots" not in raw:
+        if whole_day is None:
+            raise ValueError("say which hours, with from and/or to (e.g. from 12:00 to 13:00)")
+        raw["slots"] = whole_day
+    return raw
+
+
+def _prepare(whole_day):
+    def prepare(raw):
+        return _hours_to_slots(_day_alias(raw), whole_day)
+    return prepare
+
+
 def _check_days(v: list[int]) -> list[int]:
     for d in v:
         if not 0 <= d < N_DAYS:
@@ -90,7 +160,7 @@ class InstructorUnavailable(BaseModel, extra="forbid"):
     days: list[int] = Field(min_length=1)
     slots: Union[Literal["all"], list[int]]
 
-    _alias = model_validator(mode="before")(_day_alias)
+    _prep = model_validator(mode="before")(_prepare("all"))
     _names = field_validator("days", mode="before")(_to_days)
     _d = field_validator("days")(_check_days)
     _s = field_validator("slots")(_check_slots_or_all)
@@ -102,7 +172,7 @@ class SectionAvoidSlots(BaseModel, extra="forbid"):
     days: list[int] = Field(min_length=1)
     slots: list[int] = Field(min_length=1)
 
-    _alias = model_validator(mode="before")(_day_alias)
+    _prep = model_validator(mode="before")(_prepare(list(range(N_PERIODS))))
     _names = field_validator("days", mode="before")(_to_days)
     _d = field_validator("days")(_check_days)
     _s = field_validator("slots")(_check_slots)
@@ -134,7 +204,7 @@ class CampusBreak(BaseModel, extra="forbid"):
     days: list[int] = Field(default_factory=lambda: list(range(N_DAYS)))
     slots: list[int] = Field(min_length=1)
 
-    _alias = model_validator(mode="before")(_day_alias)
+    _prep = model_validator(mode="before")(_prepare(None))
     _names = field_validator("days", mode="before")(_to_days)
     _d = field_validator("days")(_check_days_or_all)
     _s = field_validator("slots")(_check_slots)
@@ -188,12 +258,18 @@ CONSTRAINT_TOOL_SCHEMA = {
                 "every day."
             ),
         },
-        "slots": {
-            "type": "array",
-            "items": {"type": "integer"},
+        "from": {
+            "type": "string",
             "description": (
-                "Hour indexes: 0=08:00, 1=09:00 ... 7=15:00. "
-                "For a whole day use [0,1,2,3,4,5,6,7]."
+                'Start time, 24-hour "HH:MM", e.g. "14:00". Omit it to mean the '
+                "start of the teaching day (08:00)."
+            ),
+        },
+        "to": {
+            "type": "string",
+            "description": (
+                'End time, 24-hour "HH:MM", e.g. "16:00". Omit it to mean the end '
+                "of the teaching day (16:00). For a whole day omit both."
             ),
         },
         "max_classes": {"type": "integer"},
