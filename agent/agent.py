@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 
 from dotenv import load_dotenv
 
@@ -490,6 +491,10 @@ def _recent(history: list) -> list:
     return []
 
 
+_ARABIC = re.compile(r"[\u0600-\u06FF]")
+_LATIN = re.compile(r"[A-Za-z]")
+
+
 class Agent:
     """Ollama cloud, native tool calling. One small surface, so the model can be
     swapped with an env var."""
@@ -529,12 +534,16 @@ class Agent:
 
         tools = tools or Tools(session)
         messages = _recent(history) + [{"role": "user", "content": message}]
+        # tool results are in English; without this the model echoes them back
+        # to an Arabic question in English
+        lang = "Arabic" if len(_ARABIC.findall(message)) > len(_LATIN.findall(message)) else "English"
+        system = SYSTEM + f"\n\nThe administrator's latest message is in {lang}. Reply in {lang}."
         reply = ""
 
         for _ in range(MAX_STEPS):
             response = self.client.chat(
                 model=MODEL,
-                messages=[{"role": "system", "content": SYSTEM}] + messages,
+                messages=[{"role": "system", "content": system}] + messages,
                 tools=TOOLS,
                 think=False,
                 options={"temperature": 0},
@@ -572,7 +581,7 @@ class Agent:
             # the tools withheld so it has to put the answer in words.
             final = self.client.chat(
                 model=MODEL,
-                messages=[{"role": "system", "content": SYSTEM}] + messages,
+                messages=[{"role": "system", "content": system}] + messages,
                 think=False,
                 options={"temperature": 0},
             )
