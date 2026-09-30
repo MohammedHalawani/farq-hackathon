@@ -9,10 +9,10 @@ const el = (tag, cls, text) => {
 const I18N = {
   en: {
     tab_generate: "Compare", tab_timetable: "Timetable", tab_agent: "Agent", tab_changes: "Change log",
-    run: "Run solver", running: "Solving…",
+    run: "Build the timetable", running: "Building…",
     eyebrow_compare: "Baseline vs optimiser", h_compare: "What the solver changes",
     p_compare: "The baseline mimics current practice: it avoids instructor, room and cohort clashes and ignores everything else. The optimiser treats accessibility as a hard requirement.",
-    h_metrics: "Every metric, side by side", empty_compare: "Run the solver to compare.",
+    h_metrics: "Every metric, side by side", empty_compare: "Build the timetable (Data tab) to compare.",
     eyebrow_timetable: "Weekly grid", h_timetable: "Timetable",
     opt_student: "Student", opt_cohort: "Cohort", opt_instructor: "Instructor", opt_room: "Room",
     opt_optimised: "Optimised", opt_baseline: "Baseline", opt_compare_mode: "Before / after",
@@ -27,13 +27,29 @@ const I18N = {
     preview: "What-if preview", apply_this: "Apply this change", placeholder: "Ask, or state a constraint…",
     conflicts_with: "Conflicts with", better: "better", worse: "worse",
     abbr_repeater: "REPEAT", abbr_access: "ACCESS",
+    tab_data: "Data", eyebrow_data: "From your file to a finished timetable",
+    h_data: "Build the semester timetable",
+    p_data: "Today this is built by hand, one level at a time, over one to one and a half weeks. Bring in the file you already prepare, state your rules, and let the solver build every level at once.",
+    s1_title: "Bring in the data",
+    s1_p: "Upload the Excel file you prepare today: courses, sections, rooms and instructors. Student groups are optional.",
+    s1_drop: "Drag the .xlsx file here", s1_choose: "Choose a file",
+    s1_template: "Download the template", s1_demo: "Use the demo campus",
+    s2_title: "Add your rules",
+    s2_p: "State rules to the assistant in Arabic or English. Each one is checked, shown to you, and applied only when you confirm.",
+    s2_go: "Open the assistant",
+    s2_empty: "Tell the assistant your rules, for example: no lectures from 12 to 1.",
+    s2_built: "The timetable is built. From here, every change goes through the assistant and appears in the change log.",
+    s3_title: "Build the timetable",
+    s3_p: "Every level, every section, every room, at once, with no clashes for instructors, rooms or students.",
+    race_us: "Jadwal", race_manual_label: "By hand", race_manual: "1 to 1.5 weeks",
+    export: "Download timetable (Excel)",
   },
   ar: {
     tab_generate: "المقارنة", tab_timetable: "الجدول", tab_agent: "المساعد", tab_changes: "سجل التغييرات",
-    run: "شغّل المحرك", running: "جارٍ الحل…",
+    run: "ابني الجدول", running: "جارٍ البناء…",
     eyebrow_compare: "الأساس مقابل المحسّن", h_compare: "ما الذي يغيّره المحرك",
     p_compare: "الجدول الأساسي يحاكي الممارسة الحالية: يتجنّب تعارض المدرّسين والقاعات والدفعات فقط. أمّا المحسّن فيعامل إمكانية الوصول كشرط إلزامي.",
-    h_metrics: "كل المؤشرات جنبًا إلى جنب", empty_compare: "شغّل المحرك للمقارنة.",
+    h_metrics: "كل المؤشرات جنبًا إلى جنب", empty_compare: "ابني الجدول (تبويب البيانات) للمقارنة.",
     eyebrow_timetable: "الجدول الأسبوعي", h_timetable: "الجدول",
     opt_student: "طالب", opt_cohort: "دفعة", opt_instructor: "مدرّس", opt_room: "قاعة",
     opt_optimised: "المحسّن", opt_baseline: "الأساسي", opt_compare_mode: "قبل / بعد",
@@ -48,6 +64,22 @@ const I18N = {
     preview: "معاينة ماذا لو", apply_this: "طبّق هذا التغيير", placeholder: "اسأل أو اذكر قيدًا…",
     conflicts_with: "يتعارض مع", better: "أفضل", worse: "أسوأ",
     abbr_repeater: "معيد", abbr_access: "وصول",
+    tab_data: "البيانات", eyebrow_data: "من ملفك إلى جدول جاهز",
+    h_data: "ابني جدول الفصل",
+    p_data: "اليوم يُبنى الجدول يدويًا، مستوى بعد مستوى، خلال أسبوع إلى أسبوع ونص. أدخلي الملف الذي تجهّزينه أصلًا، واذكري قواعدك، ودعي المحرك يبني المستويات كلها دفعة واحدة.",
+    s1_title: "أدخلي البيانات",
+    s1_p: "ارفعي ملف Excel الذي تجهّزينه اليوم: المقررات والشعب والقاعات والمدرسون. مجموعات الطلاب اختيارية.",
+    s1_drop: "اسحبي ملف ‎.xlsx‎ هنا", s1_choose: "اختاري ملفًا",
+    s1_template: "تنزيل القالب", s1_demo: "استخدمي الحرم التجريبي",
+    s2_title: "أضيفي القواعد",
+    s2_p: "اذكري قواعدك للمساعد بالعربي أو بالإنجليزي. كل قاعدة تُفحص وتُعرض عليك، ولا تُطبَّق إلا بعد تأكيدك.",
+    s2_go: "افتحي المساعد",
+    s2_empty: "أخبري المساعد بقواعدك، مثل: لا محاضرات من ١٢ إلى ١",
+    s2_built: "تم بناء الجدول. أي تغيير بعد الآن يمر عبر المساعد ويظهر في سجل التغييرات.",
+    s3_title: "ابني الجدول",
+    s3_p: "كل المستويات والشعب والقاعات دفعة واحدة، بلا تعارض للمدرسين أو القاعات أو الطلاب.",
+    race_us: "جدول", race_manual_label: "يدويًا", race_manual: "أسبوع إلى أسبوع ونص",
+    export: "تنزيل الجدول (Excel)",
   },
 };
 
@@ -95,6 +127,7 @@ const state = {
   lang: "en", meta: null, entities: null, comparison: null,
   entType: "student", entId: null, source: "baseline", pending: null, busy: false,
   lastApplied: null, movedMeetings: new Set(), trace: [], moves: [], overlay: null,
+  upload: null,   // the last upload's report, kept even when it was rejected
 };
 
 const t = (k) => I18N[state.lang][k] || k;
@@ -113,15 +146,17 @@ function applyLang() {
   $("#chat-input").placeholder = t("placeholder");
   renderComparison(); renderPersonas(); renderEntitySelect(); renderGrid(); renderSide(); renderChanges(); renderSuggest();
   renderTrace(state.trace, { animate: false });
+  renderData();
 }
 
 /* ---------- tabs ---------- */
+function showTab(name) {
+  document.querySelectorAll(".tab").forEach((x) => x.setAttribute("aria-selected", String(x.dataset.panel === name)));
+  document.querySelectorAll(".panel").forEach((p) => p.classList.toggle("is-active", p.id === "panel-" + name));
+  if (name === "changes") loadChanges();
+}
 document.querySelectorAll(".tab").forEach((b) => {
-  b.addEventListener("click", () => {
-    document.querySelectorAll(".tab").forEach((x) => x.setAttribute("aria-selected", String(x === b)));
-    document.querySelectorAll(".panel").forEach((p) => p.classList.toggle("is-active", p.id === "panel-" + b.dataset.panel));
-    if (b.dataset.panel === "changes") loadChanges();
-  });
+  b.addEventListener("click", () => showTab(b.dataset.panel));
 });
 
 $("#lang-toggle").addEventListener("click", () => { state.lang = state.lang === "ar" ? "en" : "ar"; applyLang(); });
@@ -259,7 +294,7 @@ function renderComparison() {
 }
 
 function showProgress() {
-  const host = $("#headline");
+  const host = $("#build-progress");
   host.replaceChildren();
   const box = el("div", "progress");
   const head = el("div", "progress__head");
@@ -274,8 +309,8 @@ function showProgress() {
   const steps = el("div", "progress__steps");
   box.appendChild(steps);
   const note = el("div", "stat__note", state.lang === "ar"
-    ? "ثلاثة ملفات تُحل بالتوازي، نحو ٣٥ ثانية."
-    : "Three profiles solved in parallel, about 35 seconds.");
+    ? "ثلاثة ملفات تُحل بالتوازي، نحو ٣٥ ثانية للحرم التجريبي."
+    : "Three profiles solved in parallel, about 35 seconds on the demo campus.");
   note.style.color = "var(--color-ink-3)";
   box.appendChild(note);
   host.appendChild(box);
@@ -309,21 +344,35 @@ async function runSolver() {
   const stop = { done: false };
   const ui = showProgress();
   pollProgress(ui, stop);
+  // the clock the coordinator compares with a week and a half by hand
+  const started = performance.now();
+  const clock = $("#build-time");
+  const tick = setInterval(() => { clock.textContent = seconds((performance.now() - started) / 1000); }, 100);
   try {
     state.comparison = await api("/api/generate", { method: "POST" });
     stop.done = true;
+    clearInterval(tick);
+    state.buildSeconds = (performance.now() - started) / 1000;
+    showBuildTime(state.buildSeconds);
+    $("#build-progress").replaceChildren();
+    state.meta = await api("/api/meta");
     renderComparison();
     setStatus();
+    renderData();
+    renderSuggest();
     // after the first solve, move the reader from the problem to the fix —
     // but never override a view they chose themselves
     if (state.source === "baseline") {
       state.source = "current";
       $("#ent-source").value = "current";
     }
+    showTab("timetable");
     await loadGrid();
   } catch (e) {
     stop.done = true;
-    $("#headline").replaceChildren(el("div", "notice notice--bad", e.message));
+    clearInterval(tick);
+    clock.textContent = "—";
+    $("#build-progress").replaceChildren(el("div", "notice notice--bad", errorText(e)));
   } finally {
     stop.done = true;
     state.busy = false;
@@ -572,6 +621,19 @@ function renderGrid() {
 }
 
 /* ---------- 3 · agent ---------- */
+// before the first build the useful things to say are setup rules
+const SUGGEST_SETUP = {
+  en: [
+    "No lectures from 12 to 1 for anyone",
+    "No lectures after 2 on Thursday",
+    "Dr. Ahmed Alali can't teach on Sunday",
+  ],
+  ar: [
+    "لا محاضرات من ١٢ إلى ١",
+    "لا محاضرات بعد ٢ يوم الخميس",
+    "د. أحمد العلي ما يقدر يدرّس يوم الأحد",
+  ],
+};
 const SUGGEST = {
   en: [
     "Dr. Ahmed can't teach Tuesday after 2pm",
@@ -591,7 +653,8 @@ function renderSuggest() {
   const host = $("#suggest");
   if (!host) return;
   host.replaceChildren();
-  for (const text of SUGGEST[state.lang]) {
+  const built = state.comparison || state.meta?.data?.built;
+  for (const text of (built ? SUGGEST : SUGGEST_SETUP)[state.lang]) {
     const b = el("button", null, text);
     b.type = "button";
     b.dir = "auto";
@@ -891,6 +954,14 @@ async function applyPending(btn) {
         out.message + " — " + t("conflicts_with") + ": " +
         (out.blocking || []).map((b) => b.type).join(", "));
       state.pending = null;
+    } else if (out.stage === "setup") {
+      // nothing to re-solve yet: the rule waits for the build
+      state.pending = null;
+      state.meta.data.setup_rules = out.rules || [];
+      addMessage("agent", state.lang === "ar"
+        ? "حُفظت كقاعدة إعداد، وستُطبَّق عند بناء الجدول (تبويب البيانات، الخطوة ٣)."
+        : "Saved as a setup rule. It is applied when you build the timetable (Data tab, step 3).");
+      renderData();
     } else {
       state.lastApplied = out.version;
       state.moves = out.version.moves || [];
@@ -1023,14 +1094,234 @@ function renderChanges() {
   table.appendChild(tb);
 }
 
+/* ---------- 0 · data ---------- */
+const seconds = (v) => (state.lang === "ar" ? `${v.toFixed(1)} ث` : `${v.toFixed(1)} s`);
+
+/** FastAPI errors arrive as JSON text; show the message, not the braces. */
+function errorText(e) {
+  try { return JSON.parse(e.message).detail || e.message; } catch { return e.message; }
+}
+
+const SUMMARY = [
+  ["levels", "Levels", "المستويات"], ["courses", "Courses", "المقررات"],
+  ["sections", "Sections", "الشعب"], ["students", "Students", "الطلاب"],
+  ["instructors", "Instructors", "المدرسون"], ["rooms", "Rooms", "القاعات"],
+];
+
+function reportList(items, kind) {
+  const ul = el("ul", "report report--" + kind);
+  for (const it of items) {
+    const li = el("li");
+    const where = [it.sheet, it.row ? (state.lang === "ar" ? `صف ${it.row}` : `row ${it.row}`) : null]
+      .filter(Boolean).join(" · ");
+    if (where) li.appendChild(el("span", "report__where", where));
+    const msg = el("span", null, state.lang === "ar" ? it.ar : it.en);
+    msg.dir = "auto";
+    li.appendChild(msg);
+    ul.appendChild(li);
+  }
+  return ul;
+}
+
+function renderData() {
+  const host = $("#data-status");
+  if (!host || !state.meta) return;
+  const d = state.meta.data;
+  host.replaceChildren();
+
+  // which campus is loaded
+  const src = el("div", "source");
+  src.appendChild(el("span", "chip " + (d.is_demo ? "" : "chip--signal"),
+    d.is_demo ? (state.lang === "ar" ? "الحرم التجريبي" : "demo campus")
+              : (state.lang === "ar" ? "ملفك" : "your file")));
+  if (!d.is_demo) {
+    const name = el("span", "source__name", d.source);
+    name.dir = "auto";
+    src.appendChild(name);
+  }
+  host.appendChild(src);
+
+  const grid = el("dl", "summary");
+  for (const [key, en, ar] of SUMMARY) {
+    const box = el("div", "summary__item");
+    box.appendChild(el("dt", null, state.lang === "ar" ? ar : en));
+    box.appendChild(el("dd", null, String(state.meta.counts[key] ?? "—")));
+    grid.appendChild(box);
+  }
+  host.appendChild(grid);
+
+  // the last upload's report: its own when it was rejected, else the loaded one
+  const rep = state.upload || d.report;
+  if (rep) {
+    const n = rep.errors.length, w = rep.warnings.length;
+    const head = el("div", "report__head");
+    head.appendChild(el("span", "chip " + (n ? "chip--bad" : "chip--ok"),
+      state.lang === "ar" ? `${n} خطأ` : `${n} error${n === 1 ? "" : "s"}`));
+    head.appendChild(el("span", "chip " + (w ? "chip--warn" : ""),
+      state.lang === "ar" ? `${w} تنبيه` : `${w} warning${w === 1 ? "" : "s"}`));
+    if (rep.filename && rep.filename !== d.source) {
+      const f = el("span", "source__name", rep.filename);
+      f.dir = "auto";
+      head.appendChild(f);
+    }
+    host.appendChild(head);
+    if (n) {
+      host.appendChild(el("div", "notice notice--bad", state.lang === "ar"
+        ? "لم يُستبدل شيء: صحّحي الأخطاء وارفعي الملف مرة أخرى. البيانات المحمّلة حاليًا باقية."
+        : "Nothing was replaced: fix the errors and upload again. The data loaded now stays."));
+      host.appendChild(reportList(rep.errors, "bad"));
+    }
+    if (w) host.appendChild(reportList(rep.warnings, "warn"));
+    if (rep.notes?.length) host.appendChild(reportList(rep.notes, "note"));
+  }
+
+  renderRules();
+  const built = !!(state.comparison || d.built);
+  $("#step-data").classList.toggle("step--done", !d.is_demo && !(state.upload?.errors.length));
+  $("#step-build").classList.toggle("step--done", built);
+  $("#export").disabled = !built;
+  if (built && state.buildSeconds == null && d.build_seconds != null) {
+    showBuildTime(d.build_seconds);
+  }
+}
+
+/** Elapsed build time. A cached build returns at once, so show the time the
+ *  solve really took when it ran, and say it came from the cache. */
+function showBuildTime(elapsed) {
+  const solved = state.comparison
+    ? Math.max(...Object.values(state.comparison.profiles).map((p) => p.seconds || 0))
+    : 0;
+  const cached = solved > 2 * elapsed + 1;
+  $("#build-time").textContent = seconds(cached ? solved : elapsed) +
+    (cached ? (state.lang === "ar" ? " · محفوظ" : " · cached") : "");
+}
+
+function renderRules() {
+  const host = $("#rules");
+  const d = state.meta.data;
+  host.replaceChildren();
+  const built = !!(state.comparison || d.built);
+  if (built) {
+    host.appendChild(el("p", "step__note", t("s2_built")));
+    return;
+  }
+  const rules = d.setup_rules || [];
+  $("#step-rules").classList.toggle("step--done", rules.length > 0);
+  if (!rules.length) {
+    const p = el("p", "step__note", t("s2_empty"));
+    p.dir = "auto";
+    host.appendChild(p);
+    return;
+  }
+  const ul = el("ul", "rules");
+  for (const r of rules) {
+    const li = el("li", "rule");
+    const d2 = r.describe;
+    const text = el("span", "rule__text", (state.lang === "ar" ? d2.title_ar : d2.title_en) + " — " +
+      d2.rows.map((x) => (state.lang === "ar" && x.value_ar ? x.value_ar : x.value)).join(" · "));
+    text.dir = "auto";
+    li.appendChild(text);
+    const rm = el("button", "btn btn--sm btn--ghost", state.lang === "ar" ? "حذف" : "Remove");
+    rm.type = "button";
+    rm.addEventListener("click", async () => {
+      const out = await api(`/api/setup/rules/${r.index}`, { method: "DELETE" });
+      if (out.ok) { state.meta.data.setup_rules = out.rules; renderData(); }
+    });
+    li.appendChild(rm);
+    ul.appendChild(li);
+  }
+  host.appendChild(ul);
+}
+
+async function uploadFile(file) {
+  if (!file || state.busy) return;
+  state.busy = true;
+  const drop = $("#drop");
+  drop.classList.add("drop--busy");
+  try {
+    const r = await fetch("/api/data/upload", {
+      method: "POST",
+      headers: { "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                 "x-filename": encodeURIComponent(file.name) },
+      body: file,
+    });
+    const out = await r.json();
+    out.report.filename = file.name;
+    if (out.ok) {
+      await resetClient();
+      state.upload = null;
+    } else {
+      state.upload = out.report;
+    }
+    renderData();
+  } catch (e) {
+    $("#data-status").prepend(el("div", "notice notice--bad", e.message));
+  } finally {
+    state.busy = false;
+    drop.classList.remove("drop--busy");
+    $("#file").value = "";
+  }
+}
+
+/** A new campus: forget every schedule, card and view that belonged to the old one. */
+async function resetClient() {
+  Object.assign(state, {
+    comparison: null, pending: null, lastApplied: null, movedMeetings: new Set(),
+    trace: [], moves: [], overlay: null, source: "baseline", buildSeconds: null, upload: null,
+  });
+  $("#ent-source").value = "baseline";
+  $("#chat-log").replaceChildren();
+  $("#build-time").textContent = "—";
+  $("#build-progress").replaceChildren();
+  state.meta = await api("/api/meta");
+  state.entities = await api("/api/entities");
+  pickOpening();
+  setStatus();
+  applyLang();
+  await loadGrid();
+  await loadChanges();
+}
+
+/** Open on the first persona on the demo campus; on uploaded data, which has
+ *  none, open on the first cohort. */
+function pickOpening() {
+  const opening = (state.entities.personas || [])[0];
+  if (opening) {
+    state.entType = opening.entity_type;
+    state.entId = opening.id;
+  } else {
+    state.entType = "cohort";
+    state.entId = state.entities.cohorts[0]?.id ?? null;
+  }
+  $("#ent-type").value = state.entType;
+}
+
+$("#choose").addEventListener("click", () => $("#file").click());
+$("#file").addEventListener("change", (e) => uploadFile(e.target.files[0]));
+const dropZone = $("#drop");
+["dragenter", "dragover"].forEach((ev) => dropZone.addEventListener(ev, (e) => {
+  e.preventDefault();
+  dropZone.classList.add("drop--over");
+}));
+["dragleave", "drop"].forEach((ev) => dropZone.addEventListener(ev, (e) => {
+  e.preventDefault();
+  dropZone.classList.remove("drop--over");
+}));
+dropZone.addEventListener("drop", (e) => uploadFile(e.dataTransfer.files[0]));
+$("#use-demo").addEventListener("click", async () => {
+  if (state.busy) return;
+  await api("/api/data/reset", { method: "POST" });
+  await resetClient();
+});
+$("#go-agent").addEventListener("click", () => { showTab("agent"); $("#chat-input").focus(); });
+$("#export").addEventListener("click", () => { window.location.href = "/api/data/export"; });
+
 /* ---------- boot ---------- */
 (async function boot() {
   state.meta = await api("/api/meta");
   state.entities = await api("/api/entities");
   // the timetable opens on Noura, who the baseline fails
-  const opening = (state.entities.personas || [])[0];
-  state.entType = opening ? opening.entity_type : "student";
-  state.entId = opening ? opening.id : state.entities.featured.needs_accessibility;
+  pickOpening();
   applyLang();
   renderPersonas();
   renderEntitySelect();

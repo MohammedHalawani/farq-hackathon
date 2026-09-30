@@ -14,7 +14,8 @@
 <header class="bar">
   <div class="wordmark"><span class="tick" aria-hidden="true"></span><h1>Jadwal</h1></div>
   <nav class="tabs" role="tablist">
-    <button class="tab" role="tab" aria-selected="true" data-panel="generate" data-i18n="tab_generate">Compare</button>
+    <button class="tab" role="tab" aria-selected="true" data-panel="data" data-i18n="tab_data">Data</button>
+    <button class="tab" role="tab" aria-selected="false" data-panel="generate" data-i18n="tab_generate">Compare</button>
     <button class="tab" role="tab" aria-selected="false" data-panel="timetable" data-i18n="tab_timetable">Timetable</button>
     <button class="tab" role="tab" aria-selected="false" data-panel="agent" data-i18n="tab_agent">Agent</button>
     <button class="tab" role="tab" aria-selected="false" data-panel="changes" data-i18n="tab_changes">Change log</button>
@@ -22,13 +23,68 @@
   <div class="bar-end">
     <span id="bar-status" class="chip"></span>
     <button class="btn btn--sm" id="lang-toggle" type="button">العربية</button>
-    <button class="btn btn--primary btn--sm" id="run" type="button" data-i18n="run">Run solver</button>
   </div>
 </header>
 
 <main>
+  <!-- 0 · Data: the coordinator's job, in three steps -->
+  <section class="panel is-active" id="panel-data" role="tabpanel">
+    <div class="head">
+      <div>
+        <p class="eyebrow" data-i18n="eyebrow_data">From your file to a finished timetable</p>
+        <h2 data-i18n="h_data">Build the semester timetable</h2>
+        <p data-i18n="p_data">Today this is built by hand, one level at a time, over one to one and a half weeks. Bring in the file you already prepare, state your rules, and let the solver build every level at once.</p>
+      </div>
+    </div>
+    <ol class="steps">
+      <li class="card step" id="step-data">
+        <div class="step__num" aria-hidden="true">1</div>
+        <div class="step__body">
+          <h3 data-i18n="s1_title">Bring in the data</h3>
+          <p class="step__lede" data-i18n="s1_p">Upload the Excel file you prepare today: courses, sections, rooms and instructors. Student groups are optional.</p>
+          <div class="drop" id="drop">
+            <input type="file" id="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden />
+            <span class="drop__main" data-i18n="s1_drop">Drag the .xlsx file here</span>
+            <button class="btn btn--sm" id="choose" type="button" data-i18n="s1_choose">Choose a file</button>
+          </div>
+          <div class="step__actions">
+            <a class="btn btn--sm" href="/api/data/template" download data-i18n="s1_template">Download the template</a>
+            <button class="btn btn--sm" id="use-demo" type="button" data-i18n="s1_demo">Use the demo campus</button>
+          </div>
+          <div id="data-status"></div>
+        </div>
+      </li>
+      <li class="card step" id="step-rules">
+        <div class="step__num" aria-hidden="true">2</div>
+        <div class="step__body">
+          <h3 data-i18n="s2_title">Add your rules</h3>
+          <p class="step__lede" data-i18n="s2_p">State rules to the assistant in Arabic or English. Each one is checked, shown to you, and applied only when you confirm.</p>
+          <div id="rules"></div>
+          <div class="step__actions">
+            <button class="btn btn--sm" id="go-agent" type="button" data-i18n="s2_go">Open the assistant</button>
+          </div>
+        </div>
+      </li>
+      <li class="card step" id="step-build">
+        <div class="step__num" aria-hidden="true">3</div>
+        <div class="step__body">
+          <h3 data-i18n="s3_title">Build the timetable</h3>
+          <p class="step__lede" data-i18n="s3_p">Every level, every section, every room, at once, with no clashes for instructors, rooms or students.</p>
+          <div class="step__actions">
+            <button class="btn btn--primary" id="run" type="button" data-i18n="run">Build the timetable</button>
+            <div class="race" aria-live="polite">
+              <div class="race__item"><span class="race__label" data-i18n="race_us">Jadwal</span><span class="race__value" id="build-time">—</span></div>
+              <div class="race__item race__item--manual"><span class="race__label" data-i18n="race_manual_label">By hand</span><span class="race__value" data-i18n="race_manual">1 to 1.5 weeks</span></div>
+            </div>
+          </div>
+          <div id="build-progress"></div>
+        </div>
+      </li>
+    </ol>
+  </section>
+
   <!-- 1 · Compare -->
-  <section class="panel is-active" id="panel-generate" role="tabpanel">
+  <section class="panel" id="panel-generate" role="tabpanel">
     <div class="head">
       <div>
         <p class="eyebrow" data-i18n="eyebrow_compare">Baseline vs optimiser</p>
@@ -53,6 +109,7 @@
         <p class="eyebrow" data-i18n="eyebrow_timetable">Weekly grid</p>
         <h2 data-i18n="h_timetable">Timetable</h2>
       </div>
+      <button class="btn" id="export" type="button" data-i18n="export" disabled>Download timetable (Excel)</button>
     </div>
     <div class="personas" id="personas"></div>
     <div class="controls">
