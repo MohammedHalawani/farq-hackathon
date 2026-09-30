@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from core.metrics import (
     ACCESSIBLE_TRANSIT_LIMIT,
     break_slots,
@@ -10,6 +12,7 @@ from core.metrics import (
 )
 from core.models import (
     DAYS,
+    DAYS_AR,
     FIRST_HOUR,
     N_DAYS,
     N_PERIODS,
@@ -43,27 +46,36 @@ def _entity_meetings(u: University, a: Assignment, entity_id: str, day: int) -> 
     return sorted(seen.values(), key=lambda m: m["period"])
 
 
-def _allowed(u: University, constraints: list[dict], mid: str, slot: int) -> list[str]:
+def _r(en: str, ar: str) -> dict:
+    """A reason in both languages, written here so neither depends on a model."""
+    return {"en": en, "ar": ar}
+
+
+def _allowed(u: University, constraints: list[dict], mid: str, slot: int) -> list[dict]:
     """User constraints and instructor availability that forbid this slot."""
     reasons = []
     sec = u.section_by_id[u.meeting_by_id[mid].section_id]
     inst = u.instructor_by_id[sec.instructor_id]
+    h = hour(slot_period(slot))
     if slot in inst.unavailable_slots:
-        reasons.append(f"{inst.name} is not available at {hour(slot_period(slot))}")
+        reasons.append(_r(f"{inst.name} is not available at {h}",
+                          f"الساعة {h} خارج أوقات {inst.name} المتاحة"))
     for c in constraints:
         if c["type"] == "instructor_unavailable" and c["instructor_id"] == sec.instructor_id:
             periods = range(N_PERIODS) if c["slots"] == "all" else c["slots"]
             if slot_day(slot) in c["days"] and slot_period(slot) in periods:
-                reasons.append(f"a confirmed rule keeps {inst.name} free then")
+                reasons.append(_r(f"a confirmed rule keeps {inst.name} free then",
+                                  f"قاعدة مؤكدة تمنع تدريس {inst.name} في هذا الوقت"))
         if c["type"] == "section_avoid_slots" and c["section_id"] == sec.id:
             if slot_day(slot) in c["days"] and slot_period(slot) in c["slots"]:
-                reasons.append(f"a confirmed rule keeps {sec.id} out of that slot")
+                reasons.append(_r(f"a confirmed rule keeps {sec.id} out of that slot",
+                                  f"قاعدة مؤكدة تُبعد الشعبة {sec.id} عن هذا الوقت"))
         if c["type"] == "campus_break":
             if slot_day(slot) in (c.get("days") or range(N_DAYS)) and slot_period(slot) in c["slots"]:
-                reasons.append(
-                    f"a confirmed rule (campus break) keeps every class out of "
-                    f"{hour(slot_period(slot))}"
-                )
+                reasons.append(_r(
+                    f"a confirmed rule (campus break) keeps every class out of {h}",
+                    f"قاعدة مؤكدة (استراحة عامة) تمنع أي محاضرة الساعة {h}",
+                ))
     return reasons
 
 
@@ -75,7 +87,7 @@ def needs_lab(u: University, constraints: list[dict], course_id: str) -> bool:
 
 def _room_options(
     u: University, a: Assignment, constraints: list[dict], mid: str, slot: int
-) -> tuple[list[str], list[str]]:
+) -> tuple[list[str], list[dict]]:
     """(rooms that would work, reasons none do)."""
     sec = u.section_by_id[u.meeting_by_id[mid].section_id]
     closed = {c["room_id"] for c in constraints if c["type"] == "room_closed"}
@@ -107,27 +119,35 @@ def _room_options(
             continue
         ok.append(r.id)
     reasons = []
+    n = sec.enrollment
     if not ok:
         if lab and not fits:
-            reasons.append(f"{sec.id} needs a lab and no lab seats {sec.enrollment} students")
+            reasons.append(_r(f"{sec.id} needs a lab and no lab seats {n} students",
+                              f"الشعبة {sec.id} تحتاج معملًا ولا يتسع أي معمل لـ {n} طالبًا"))
         elif lab and not (needs_access and not_accessible):
-            reasons.append(
-                f"{sec.id} needs a lab and every lab that seats {sec.enrollment} "
-                "is already taken at that hour"
-            )
+            reasons.append(_r(
+                f"{sec.id} needs a lab and every lab that seats {n} "
+                "is already taken at that hour",
+                f"الشعبة {sec.id} تحتاج معملًا وكل معمل يتسع لـ {n} مشغول في تلك الساعة",
+            ))
         elif not fits:
-            reasons.append(f"no room seats {sec.enrollment} students")
+            reasons.append(_r(f"no room seats {n} students",
+                              f"لا توجد قاعة تتسع لـ {n} طالبًا"))
         elif needs_access and not_accessible:
-            reasons.append(
+            reasons.append(_r(
                 f"{sec.id} needs an accessible room and every accessible room that "
-                f"seats {sec.enrollment} is already taken at that hour"
-            )
+                f"seats {n} is already taken at that hour",
+                f"الشعبة {sec.id} تحتاج قاعة مهيأة وكل قاعة مهيأة تتسع لـ {n} "
+                "مشغولة في تلك الساعة",
+            ))
         elif occupied:
-            reasons.append(
-                f"all {len(occupied)} rooms big enough are already in use at that hour"
-            )
+            reasons.append(_r(
+                f"all {len(occupied)} rooms big enough are already in use at that hour",
+                f"كل القاعات الكافية ({len(occupied)}) مشغولة في تلك الساعة",
+            ))
         else:
-            reasons.append("no room is free at that hour")
+            reasons.append(_r("no room is free at that hour",
+                              "لا توجد قاعة متاحة في تلك الساعة"))
     return ok, reasons
 
 
@@ -135,6 +155,13 @@ def blockers(
     u: University, a: Assignment, constraints: list[dict], mid: str, slot: int
 ) -> list[str]:
     """Every hard constraint that forbids moving this meeting into this slot."""
+    return [r["en"] for r in blocker_reasons(u, a, constraints, mid, slot)]
+
+
+def blocker_reasons(
+    u: University, a: Assignment, constraints: list[dict], mid: str, slot: int
+) -> list[dict]:
+    """blockers(), each as {en, ar}."""
     out = list(_allowed(u, constraints, mid, slot))
     m = u.meeting_by_id[mid]
     sec = u.section_by_id[m.section_id]
@@ -145,19 +172,21 @@ def blockers(
         if a.slot[other.id] != slot:
             continue
         if u.section_by_id[other.section_id].instructor_id == sec.instructor_id:
-            out.append(
-                f"{u.instructor_by_id[sec.instructor_id].name} already teaches "
-                f"{u.course_by_id[u.section_by_id[other.section_id].course_id].name} then"
-            )
+            name = u.instructor_by_id[sec.instructor_id].name
+            busy = u.course_by_id[u.section_by_id[other.section_id].course_id]
+            out.append(_r(f"{name} already teaches {busy.name} then",
+                          f"لدى {name} محاضرة {busy.name_ar} في هذا الوقت"))
             break
 
     for sibling in u.meetings_of_section[sec.id]:
         if sibling.id != mid and sibling.id in a.slot:
             if slot_day(a.slot[sibling.id]) == slot_day(slot):
-                out.append(
+                out.append(_r(
                     f"the section's other meeting is already on {DAYS[slot_day(slot)]}, "
-                    "and the two must fall on different days"
-                )
+                    "and the two must fall on different days",
+                    f"المحاضرة الأخرى للشعبة يوم {DAYS_AR[slot_day(slot)]} أصلًا، "
+                    "ويجب أن تكونا في يومين مختلفين",
+                ))
 
     _, room_reasons = _room_options(u, a, constraints, mid, slot)
     out += room_reasons
@@ -214,6 +243,7 @@ def explain_gap(
         return {
             "entity_id": entity_id,
             "day": DAYS[day],
+            "day_ar": DAYS_AR[day],
             "gap_hours": [],
             "note": "There is no gap: fewer than two classes that day.",
         }
@@ -233,7 +263,9 @@ def explain_gap(
         return {
             "entity_id": entity_id,
             "day": DAYS[day],
+            "day_ar": DAYS_AR[day],
             "gap_hours": [],
+            **({"campus_break_hours": [hour(p) for p in inside_breaks]} if inside_breaks else {}),
             "note": "There is no gap that day."
             + (
                 f" The empty hour{'s' if len(inside_breaks) > 1 else ''} at "
@@ -254,7 +286,8 @@ def explain_gap(
         course = u.course_by_id[sec.course_id]
         for g in gaps:
             slot = slot_id(day, g)
-            why = blockers(u, a, constraints, m["meeting_id"], slot)
+            why_r = blocker_reasons(u, a, constraints, m["meeting_id"], slot)
+            why = [r["en"] for r in why_r]
             entry = {
                 "meeting_id": m["meeting_id"],
                 "section_id": sec.id,
@@ -263,6 +296,7 @@ def explain_gap(
                 "from_hour": hour(m["period"]),
                 "to_hour": hour(g),
                 "blocked_by": why,
+                "blocked_by_ar": [r["ar"] for r in why_r],
             }
             if not why:
                 rooms, _ = _room_options(u, a, constraints, m["meeting_id"], slot)
@@ -276,21 +310,26 @@ def explain_gap(
                 )
                 entry["would_cost"] = best
                 if best["new_student_clashes"]:
+                    n = best["new_student_clashes"]
                     entry["verdict"] = (
                         f"nothing forbids the move, but it would clash with "
-                        f"{best['new_student_clashes']} students' other classes"
+                        f"{n} students' other classes"
                     )
+                    entry["verdict_ar"] = f"لا شيء يمنع النقل، لكنه يسبب تعارضًا لـ {n} طالبًا"
                 elif best["idle_hours_saved"] <= 0:
                     entry["verdict"] = (
                         "the move is allowed but pointless: it would not shorten "
                         "any student's day, because the students in this class are "
                         "not the ones sitting through the gap"
                     )
-                else:
-                    entry["verdict"] = (
-                        f"possible, and it would save "
-                        f"{best['idle_hours_saved']} idle hours"
+                    entry["verdict_ar"] = (
+                        "النقل ممكن لكنه بلا فائدة: طلاب هذه المحاضرة ليسوا من ينتظرون "
+                        "في الفراغ"
                     )
+                else:
+                    n = best["idle_hours_saved"]
+                    entry["verdict"] = f"possible, and it would save {n} idle hours"
+                    entry["verdict_ar"] = f"ممكن، ويوفّر {n} ساعة فراغ"
             findings.append(entry)
 
     return {
@@ -302,6 +341,7 @@ def explain_gap(
             else "every class this cohort takes, pooled; an individual student "
             "may sit through less of it"
         ),
+        "day_ar": DAYS_AR[day],
         "gap_hours": [hour(g) for g in gaps],
         "gap_length_hours": len(gaps),
         **(
@@ -333,15 +373,22 @@ def explain_meeting(
     for s in range(len(DAYS) * N_PERIODS):
         if s == slot:
             continue
-        why = blockers(u, a, constraints, meeting_id, s)
+        why = blocker_reasons(u, a, constraints, meeting_id, s)
         if why:
             blocked_slots[s] = why
         else:
             free_slots.append(s)
 
-    tally: dict[str, int] = {}
+    # the first reason per blocked slot, counted; hours are dropped from the
+    # key so "not available at 09:00" and "at 10:00" count as one reason
+    tally: dict[str, list] = {}
     for reasons in blocked_slots.values():
-        tally[reasons[0]] = tally.get(reasons[0], 0) + 1
+        first = reasons[0]
+        key = _without_hour(first["en"])
+        if key not in tally:
+            tally[key] = [_without_hour(first["en"]), _without_hour(first["ar"]), 0]
+        tally[key][2] += 1
+    top = sorted(tally.values(), key=lambda t: -t[2])[:4]
 
     lab = needs_lab(u, constraints, sec.course_id)
     fitting = [r for r in u.rooms
@@ -373,10 +420,117 @@ def explain_meeting(
                 if lab
                 else "any room that seats the section is allowed"
             ),
+            "reason_ar": (
+                "في الشعبة طالب يحتاج قاعة مهيأة"
+                if needs_access
+                else "المقرر يُدرَّس في معمل"
+                if lab
+                else "أي قاعة تتسع للشعبة مسموحة"
+            ),
         },
         "slot_choice": {
             "alternative_slots_blocked": len(blocked_slots),
             "alternative_slots_free": len(free_slots),
-            "main_blockers": sorted(tally.items(), key=lambda kv: -kv[1])[:4],
+            "main_blockers": [(en, n) for en, _, n in top],
+            "main_blockers_ar": [(ar, n) for _, ar, n in top],
         },
+        "instructor_name": u.instructor_by_id[sec.instructor_id].name,
+        "current_ar": {"day": DAYS_AR[slot_day(slot)]},
     }
+
+
+def _without_hour(text: str) -> str:
+    return re.sub(r"\s*(at|الساعة)\s+\d{2}:\d{2}\s*", " ", text).strip()
+
+
+# --- the summary the chat shows verbatim ----------------------------------------
+
+
+def _spans(hours: list[str], sep: str = ", ") -> str:
+    """["10:00", "11:00", "13:00"] -> "10:00–12:00, 13:00–14:00"."""
+    ps = sorted(int(h[:2]) for h in hours)
+    runs: list[list[int]] = []
+    for p in ps:
+        if runs and p == runs[-1][1]:
+            runs[-1][1] = p + 1
+        else:
+            runs.append([p, p + 1])
+    return sep.join(f"{a:02d}:00–{b:02d}:00" for a, b in runs)
+
+
+def _hours_word(n: int, ar: bool) -> str:
+    if not ar:
+        return f"{n} hour{'s' if n != 1 else ''}"
+    return {1: "ساعة واحدة", 2: "ساعتان"}.get(n, f"{n} ساعات")
+
+
+def summarize_gap(out: dict, lang: str = "en") -> str | None:
+    """explain_gap's result as the lines the chat shows word for word."""
+    if "error" in out:
+        return None
+    ar = lang == "ar"
+    who, day = out["entity_id"], out["day_ar"] if ar else out["day"]
+    breaks = out.get("campus_break_hours", [])
+    break_line = (
+        (f"الساعة {'، '.join(breaks)} استراحة عامة: لا تُحسب فراغًا ولا يمكن نقل محاضرة إليها."
+         if ar else
+         f"{', '.join(breaks)} is the campus break: it is not a gap, and no class can move into it.")
+        if breaks else None
+    )
+    if not out["gap_hours"]:
+        head = (f"لا يوجد فراغ لـ {who} يوم {day}." if ar
+                else f"{who} has no gap on {day}.")
+        return "\n".join(x for x in (head, break_line) if x)
+
+    n = out["gap_length_hours"]
+    lines = [
+        f"فراغ {who} يوم {day}: {_spans(out['gap_hours'], '، ')} ({_hours_word(n, True)})."
+        if ar else
+        f"{who} has a gap on {day}: {_spans(out['gap_hours'])} ({_hours_word(n, False)})."
+    ]
+    if break_line:
+        lines.append(break_line)
+    if who not in out.get("counts_as", "") and "pooled" in out.get("counts_as", ""):
+        lines.append("هذه محاضرات الدفعة كلها معًا؛ قد ينتظر الطالب الواحد أقل من ذلك."
+                     if ar else
+                     "This pools every class the cohort takes; one student may wait less.")
+    for m in out["moves_considered"]:
+        course = m["course_ar"] if ar else m["course"]
+        if m["blocked_by"]:
+            why = (m["blocked_by_ar"] if ar else m["blocked_by"])[0]
+        else:
+            why = m["verdict_ar"] if ar else m["verdict"]
+        lines.append(
+            f"• نقل {course} من {m['from_hour']} إلى {m['to_hour']}: {why}."
+            if ar else
+            f"• Moving {course} from {m['from_hour']} to {m['to_hour']}: {why}."
+        )
+    return "\n".join(lines)
+
+
+def summarize_meeting(out: dict, lang: str = "en") -> str | None:
+    """explain_meeting's result as the lines the chat shows word for word."""
+    if "error" in out:
+        return None
+    ar = lang == "ar"
+    cur, sc, rc = out["current"], out["slot_choice"], out["room_choice"]
+    total = sc["alternative_slots_blocked"] + sc["alternative_slots_free"]
+    if ar:
+        lines = [
+            f"{out['course_ar']} ({out['meeting_id']}) يوم {out['current_ar']['day']} "
+            f"الساعة {cur['hour']} في القاعة {cur['room']}، مع {out['instructor_name']}.",
+            f"القاعة: {rc['reason_ar']}.",
+            f"من {total} وقتًا بديلًا: {sc['alternative_slots_blocked']} محجوب "
+            f"و{sc['alternative_slots_free']} متاح.",
+        ]
+        lines += [f"• {why} ({n})." for why, n in sc["main_blockers_ar"]]
+    else:
+        lines = [
+            f"{out['course']} ({out['meeting_id']}) is on {cur['day']} at {cur['hour']} "
+            f"in {cur['room']}, with {out['instructor_name']}.",
+            f"Room: {rc['reason']}.",
+            f"Of {total} other times: {sc['alternative_slots_blocked']} blocked, "
+            f"{sc['alternative_slots_free']} free.",
+        ]
+        lines += [f"• {why} ({n})." for why, n in sc["main_blockers"]]
+    return "\n".join(lines)

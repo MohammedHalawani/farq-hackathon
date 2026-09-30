@@ -9,9 +9,9 @@ from dotenv import load_dotenv
 from agent.describe import describe, short_label
 from agent.resolver import is_vague, one_course, resolve
 from agent.schemas import CONSTRAINT_TOOL_SCHEMA, parse_constraint, to_day
-from core.explain import explain_gap, explain_meeting
+from core.explain import explain_gap, explain_meeting, summarize_gap, summarize_meeting
 from core.metrics import delta, moved_meetings
-from core.models import DAYS, FIRST_HOUR, slot_day, slot_period
+from core.models import DAYS, DAYS_AR, FIRST_HOUR, slot_day, slot_period
 from core.solver import CHANGE_ROUNDS, solve
 
 load_dotenv()
@@ -228,6 +228,9 @@ class Tools:
         # candidates of the last ambiguous lookup, named as the database stores
         # them, so the choice the admin clicks never passes through the model
         self.choices: list[dict] | None = None
+        # code-written explanations, shown first and verbatim in the reply
+        self.lang = "en"
+        self.summaries: list[str] = []
 
     def run(self, name: str, args: dict) -> dict:
         if name == "explain_gap" and "day" in args:
@@ -380,6 +383,7 @@ class Tools:
         if self.s.current is None:
             return NO_TIMETABLE
         out = explain_gap(self.s.u, self.s.current, self.s.constraints, entity_id, day)
+        self._summary(summarize_gap(out, self.lang))
         if "error" not in out:
             self.overlay = {
                 "kind": "gap",
@@ -395,7 +399,13 @@ class Tools:
     def t_explain_meeting(self, meeting_id: str) -> dict:
         if self.s.current is None:
             return NO_TIMETABLE
-        return explain_meeting(self.s.u, self.s.current, self.s.constraints, meeting_id)
+        out = explain_meeting(self.s.u, self.s.current, self.s.constraints, meeting_id)
+        self._summary(summarize_meeting(out, self.lang))
+        return out
+
+    def _summary(self, text: str | None) -> None:
+        if text and text not in self.summaries:
+            self.summaries.append(text)
 
     def t_get_schedule(self, entity_type: str, entity_id: str) -> dict:
         from api.main import _meetings_for
@@ -467,11 +477,13 @@ def _blocked_moves(moves: list[dict]) -> list[dict]:
     for m in moves:
         if m["blocked_by"]:
             kind, en, ar = _classify(m["blocked_by"][0])
-            detail_en, detail_ar = m["blocked_by"][0], m["blocked_by"][0]
+            detail_en = m["blocked_by"][0]
+            detail_ar = (m.get("blocked_by_ar") or m["blocked_by"])[0]
         else:
             kind = "cost"
             en = ar = ""
-            detail_en = detail_ar = m.get("verdict", "")
+            detail_en = m.get("verdict", "")
+            detail_ar = m.get("verdict_ar", detail_en)
             if "clash with" in detail_en:
                 kind, en, ar = "clash", "students would clash", "سيتعارض طلاب"
             else:
@@ -519,6 +531,91 @@ def _choices(u, matches: list[dict]) -> list[dict]:
         if names.count(c["reply"]) > 1:
             c["reply"] = c["id"]
     return out
+
+
+_TIME = re.compile(r"\b(\d{1,2})[:.٫](\d{2})\b")
+_NUMBER = re.compile(r"\d+")
+# every id carries a digit: S01, S01-m1, CS-L3, B12, B1-101, ST049, I01, C04
+_ID = re.compile(r"\b[A-Z]{1,3}(?:\d+(?:-[A-Za-z]?\d+)?|-L\d+)\b")
+_NUMBER_WORDS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+    "eight": 8, "nine": 9, "ten": 10,
+    "ساعتين": 2, "ساعتان": 2, "اثنتين": 2, "اثنين": 2, "ثلاث": 3, "ثلاثة": 3,
+    "أربع": 4, "اربع": 4, "أربعة": 4, "خمس": 5, "خمسة": 5, "ست": 6, "ستة": 6,
+    "سبع": 7, "سبعة": 7, "ثمان": 8, "ثماني": 8, "تسع": 9, "عشر": 10,
+}
+_DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
+
+
+_ABBREVIATIONS = ("د.", "أ.", "Dr.", "Prof.", "dr.")
+
+
+def _first_sentence(text: str) -> str:
+    text = re.sub(r"[*_`#>]+", "", text or "").strip()
+    # "د. سارة" is one name, not the end of a sentence
+    for abbr in _ABBREVIATIONS:
+        text = text.replace(abbr + " ", abbr + "\x00")     # not whitespace to \s
+    for part in re.split(r"(?<=[.!?؟])\s+|\n+", text):
+        part = part.strip(" -•\t")
+        if part:
+            return part.replace("\x00", " ")
+    return ""
+
+
+def _facts(text: str) -> tuple[set[str], set[int]]:
+    """(times as HH:MM, every other number) that a text states. The digits in
+    an id (the 3 of CS-L3) are part of a name, not a number."""
+    text = text.translate(_DIGITS)
+    times = {f"{int(h):02d}:{m}" for h, m in _TIME.findall(text)}
+    rest = _ID.sub(" ", _TIME.sub(" ", text))
+    numbers = {int(n) for n in _NUMBER.findall(rest)}
+    numbers |= {n for w, n in _NUMBER_WORDS.items() if re.search(rf"(?<!\w){w}(?!\w)", text.lower())}
+    return times, numbers
+
+
+def _names(u) -> list[str]:
+    out = [d for d in DAYS] + list(DAYS_AR)
+    for i in u.instructors:
+        out += [i.name, i.name_en]
+    for c in u.courses:
+        out += [c.name, c.name_ar]
+    for st in u.students:
+        out += [st.name, st.name_en]
+    for b in u.buildings:
+        out += [b.name, b.name_ar]
+    return [n for n in out if n and len(n) > 2]
+
+
+def sentence_is_grounded(sentence: str, summary: str, u) -> bool:
+    """True when the sentence states no time, and no number, day, name or id
+    that the summary does not.
+
+    No time at all: the summary already gives the hours exactly, and a wrong
+    range is easily built from right parts ("10:00 to 12:00" when 10:00 is a
+    class and 12:00 the end of the gap). A bare hour ("at 11") is a time too."""
+    _, s_numbers = _facts(summary)
+    times, numbers = _facts(sentence)
+    if times:
+        return False
+    if re.search(r"\b(at|from|to|until|الساعة|من|إلى|الى|حتى)\s+\d{1,2}\b",
+                 sentence.translate(_DIGITS)):
+        return False
+    if not numbers <= s_numbers:
+        return False
+    for token in _ID.findall(sentence):
+        if token not in summary:
+            return False
+    return all(name not in sentence or name in summary for name in _names(u))
+
+
+def compose(summaries: list[str], model_reply: str, u) -> str:
+    """The code-written summary, verbatim, then at most one sentence of the
+    model's, and only if it adds no fact of its own."""
+    summary = "\n\n".join(summaries)
+    sentence = _first_sentence(model_reply)
+    if sentence and sentence_is_grounded(sentence, summary, u):
+        return f"{summary}\n\n{sentence}"
+    return summary
 
 
 def _recent(history: list) -> list:
@@ -580,6 +677,7 @@ class Agent:
         # to an Arabic question in English
         lang = "Arabic" if len(_ARABIC.findall(message)) > len(_LATIN.findall(message)) else "English"
         system = SYSTEM + f"\n\nThe administrator's latest message is in {lang}. Reply in {lang}."
+        tools.lang = "ar" if lang == "Arabic" else "en"
         reply = ""
 
         for _ in range(MAX_STEPS):
@@ -629,8 +727,11 @@ class Agent:
             )
             reply = final["message"].get("content") or ""
 
+        reply = (reply or "").strip()
+        if tools.summaries:
+            reply = compose(tools.summaries, reply, session.u)
         return {
-            "reply": (reply or "").strip() or "(no reply)",
+            "reply": reply or "(no reply)",
             "card": tools.card,
             "history": messages,
             "offline": False,
