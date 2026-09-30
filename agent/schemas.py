@@ -2,9 +2,64 @@ from __future__ import annotations
 
 from typing import Literal, Union
 
-from pydantic import BaseModel, Field, field_validator
+import re
 
-from core.models import N_DAYS, N_PERIODS
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from core.models import DAYS, DAYS_AR, N_DAYS, N_PERIODS
+
+
+def _fold(word: str) -> str:
+    """Case, the article and hamza variants out of the way: "الإثنين",
+    "الاثنين" and "اثنين" all fold to the same key."""
+    w = word.strip().lower().translate(str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789"))
+    w = re.sub("[إأآا]", "ا", w)
+    return w[2:] if w.startswith("ال") and len(w) > 3 else w
+
+
+DAY_NAMES: dict[str, int] = {}
+for _i, (_en, _ar) in enumerate(zip(DAYS, DAYS_AR)):
+    for _name in (_en, _en[:3], _ar):
+        DAY_NAMES[_fold(_name)] = _i
+
+
+def to_day(v) -> int:
+    """A day as the model or a person writes it -> 0..4. Integers pass through
+    (range-checked later); names are looked up by code, never by the model."""
+    if isinstance(v, bool):
+        raise ValueError(f"'{v}' is not a day")
+    if isinstance(v, int):
+        return v
+    if isinstance(v, float) and v.is_integer():
+        return int(v)
+    if isinstance(v, str):
+        key = _fold(v)
+        if key.lstrip("-").isdigit():
+            return int(key)
+        if key in DAY_NAMES:
+            return DAY_NAMES[key]
+    raise ValueError(
+        f"'{v}' is not a teaching day. Use a day name: {', '.join(DAYS)}."
+    )
+
+
+def _to_days(v):
+    """A single day or a list of them, as names or numbers."""
+    if v is None:
+        return v
+    if not isinstance(v, (list, tuple)):
+        v = [v]
+    return [to_day(d) for d in v]
+
+
+def _day_alias(raw):
+    """`day` (one value or a list) is accepted as `days`."""
+    if isinstance(raw, dict) and "day" in raw:
+        raw = dict(raw)
+        day = raw.pop("day")
+        if "days" not in raw:
+            raw["days"] = day
+    return raw
 
 
 def _check_days(v: list[int]) -> list[int]:
@@ -35,6 +90,8 @@ class InstructorUnavailable(BaseModel, extra="forbid"):
     days: list[int] = Field(min_length=1)
     slots: Union[Literal["all"], list[int]]
 
+    _alias = model_validator(mode="before")(_day_alias)
+    _names = field_validator("days", mode="before")(_to_days)
     _d = field_validator("days")(_check_days)
     _s = field_validator("slots")(_check_slots_or_all)
 
@@ -45,6 +102,8 @@ class SectionAvoidSlots(BaseModel, extra="forbid"):
     days: list[int] = Field(min_length=1)
     slots: list[int] = Field(min_length=1)
 
+    _alias = model_validator(mode="before")(_day_alias)
+    _names = field_validator("days", mode="before")(_to_days)
     _d = field_validator("days")(_check_days)
     _s = field_validator("slots")(_check_slots)
 
@@ -75,6 +134,8 @@ class CampusBreak(BaseModel, extra="forbid"):
     days: list[int] = Field(default_factory=lambda: list(range(N_DAYS)))
     slots: list[int] = Field(min_length=1)
 
+    _alias = model_validator(mode="before")(_day_alias)
+    _names = field_validator("days", mode="before")(_to_days)
     _d = field_validator("days")(_check_days_or_all)
     _s = field_validator("slots")(_check_slots)
 
@@ -120,10 +181,11 @@ CONSTRAINT_TOOL_SCHEMA = {
         "course_id": {"type": "string", "description": "e.g. C04 (from get_entity)"},
         "days": {
             "type": "array",
-            "items": {"type": "integer"},
+            "items": {"type": "string"},
             "description": (
-                "0=Sunday 1=Monday 2=Tuesday 3=Wednesday 4=Thursday. "
-                "For campus_break, omit it to mean every day."
+                "Day names: Sunday, Monday, Tuesday, Wednesday, Thursday "
+                "(Arabic names are fine too). For campus_break, omit it to mean "
+                "every day."
             ),
         },
         "slots": {

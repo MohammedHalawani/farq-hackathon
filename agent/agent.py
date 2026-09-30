@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 
 from agent.describe import describe, short_label
 from agent.resolver import is_vague, one_course, resolve
-from agent.schemas import CONSTRAINT_TOOL_SCHEMA, parse_constraint
+from agent.schemas import CONSTRAINT_TOOL_SCHEMA, parse_constraint, to_day
 from core.explain import explain_gap, explain_meeting
 from core.metrics import delta, moved_meetings
 from core.models import DAYS, FIRST_HOUR, slot_day, slot_period
@@ -78,8 +78,9 @@ built yet" until then — pass that on and tell the administrator to build first
 (Data tab). Never invent an answer instead.
 
 TIME
-Days are 0=Sunday, 1=Monday, 2=Tuesday, 3=Wednesday, 4=Thursday. Friday and Saturday
-are the weekend and do not exist. The teaching day is 8 one-hour slots:
+Teaching days are Sunday to Thursday; Friday and Saturday are the weekend and do
+not exist. Give days by name ("Wednesday"); code converts them. The teaching day
+is 8 one-hour slots:
 slot 0 = 08:00, slot 1 = 09:00 ... slot 7 = 15:00.
 - "after N o'clock" / "بعد الساعة N" includes the slot that starts at N.
   "after 2pm" is slots 6,7. "after 12" is slots 4,5,6,7.
@@ -152,7 +153,7 @@ RAW_TOOLS = [
             "required": ["entity_id", "day"],
             "properties": {
                 "entity_id": {"type": "string", "description": "A student ID or a cohort ID"},
-                "day": {"type": "integer", "description": "0=Sunday .. 4=Thursday"},
+                "day": {"type": "string", "description": "Day name, Sunday .. Thursday"},
             },
         },
     },
@@ -229,6 +230,13 @@ class Tools:
         self.choices: list[dict] | None = None
 
     def run(self, name: str, args: dict) -> dict:
+        if name == "explain_gap" and "day" in args:
+            # the day is a name the model copies, turned into a number by code
+            try:
+                args["day"] = to_day(args["day"])
+            except ValueError as e:
+                self.calls.append((name, args))
+                return {"error": str(e)}
         self.calls.append((name, args))
         fn = getattr(self, f"t_{name}", None)
         if fn is None:
