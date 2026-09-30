@@ -67,10 +67,11 @@ LEVEL_WORDS = {
 
 
 def cohort_keys(cohort: str) -> list[str]:
-    dept, level = cohort.split("-L")
-    return [cohort, f"{dept}{level}"] + [
-        f"{d} {lv}" for d in DEPT_WORDS[dept] for lv in LEVEL_WORDS[int(level)]
-    ]
+    dept, level = cohort.rsplit("-L", 1)
+    # an uploaded campus can name departments and levels the demo never had
+    depts = DEPT_WORDS.get(dept, [dept])
+    levels = LEVEL_WORDS.get(int(level), [level, f"level {level}", f"المستوى {level}"])
+    return [cohort, f"{dept}{level}"] + [f"{d} {lv}" for d in depts for lv in levels]
 
 
 def candidates(u: University) -> list[dict]:

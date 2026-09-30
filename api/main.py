@@ -2,20 +2,24 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from email.parser import BytesParser
+from email.policy import HTTP
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from agent.trace import for_apply, for_message
-from api.state import SESSION
+from api.state import SESSION, BuildError
 from core.metrics import (
     ACCESSIBLE_TRANSIT_LIMIT,
     problem_labels,
     student_day_meetings,
 )
 from core.models import DAYS, DAYS_AR, FIRST_HOUR, N_PERIODS, slot_day, slot_period
-from data.generator import PERSONAS
+from data.excel_io import export_template, load_workbook
+from data.generator import PERSONAS, generate as generate_demo
 
 WEB = Path(__file__).resolve().parent.parent / "web"
 
@@ -37,14 +41,98 @@ def meta() -> dict:
             "instructors": len(u.instructors),
             "repeaters": sum(1 for s in u.students if s.is_repeater),
             "needs_accessibility": sum(1 for s in u.students if s.needs_accessibility),
+            "courses": len(u.courses),
+            "levels": len({(c.department, c.level) for c in u.courses}),
+            "buildings": len(u.buildings),
         },
+        "data": _data_state(),
+    }
+
+
+def _data_state() -> dict:
+    return {
+        "source": SESSION.source,
+        "is_demo": SESSION.is_demo,
+        "report": SESSION.report,
+        "built": SESSION.current is not None,
+        "build_seconds": SESSION.build_seconds,
+        "setup_rules": SESSION.setup_rules() if SESSION.current is None else [],
     }
 
 
 @app.post("/api/generate")
 def generate() -> dict:
     with SESSION.lock:
-        return SESSION.generate_all()
+        try:
+            return SESSION.generate_all()
+        except BuildError as e:
+            raise HTTPException(422, str(e))
+
+
+XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _xlsx(data: bytes, filename: str) -> Response:
+    return Response(
+        data, media_type=XLSX,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/data/template")
+def data_template() -> Response:
+    """The demo campus as the coordinator's workbook: fill it in, or upload it
+    straight back."""
+    return _xlsx(export_template(generate_demo()), "jadwal-template.xlsx")
+
+
+def _file_from(body: bytes, content_type: str) -> tuple[bytes, str]:
+    """A raw .xlsx body, or the first file of a multipart form (parsed with the
+    standard library, so no extra dependency)."""
+    if not content_type.startswith("multipart/"):
+        return body, "upload.xlsx"
+    msg = BytesParser(policy=HTTP).parsebytes(
+        f"Content-Type: {content_type}\r\n\r\n".encode() + body
+    )
+    for part in msg.iter_parts():
+        if part.get_filename():
+            return part.get_payload(decode=True) or b"", part.get_filename()
+    raise HTTPException(400, "No file in the upload.")
+
+
+@app.post("/api/data/upload")
+async def data_upload(request: Request) -> dict:
+    body = await request.body()
+    if not body:
+        raise HTTPException(400, "Empty upload.")
+    data, name = _file_from(body, request.headers.get("content-type", ""))
+    u, report = load_workbook(data)
+    report["filename"] = name
+    if u is None:
+        # nothing replaced: the current campus stays loaded
+        return {"ok": False, "report": report, "data": _data_state()}
+    with SESSION.lock:
+        SESSION.load(u, is_demo=False, report=report, source=name)
+    return {"ok": True, "report": report, "data": _data_state(), "counts": meta()["counts"]}
+
+
+@app.post("/api/data/reset")
+def data_reset() -> dict:
+    with SESSION.lock:
+        SESSION.load(generate_demo(), is_demo=True)
+    return {"ok": True, "data": _data_state(), "counts": meta()["counts"]}
+
+
+@app.get("/api/setup/rules")
+def setup_rules() -> dict:
+    return {"rules": SESSION.setup_rules() if SESSION.current is None else [],
+            "built": SESSION.current is not None}
+
+
+@app.delete("/api/setup/rules/{index}")
+def remove_setup_rule(index: int) -> dict:
+    with SESSION.lock:
+        return SESSION.remove_setup_rule(index)
 
 
 @app.get("/api/progress")
@@ -99,7 +187,10 @@ def entities() -> dict:
 
 
 def _personas() -> list[dict]:
-    """The three pinned faces, with a tag computed from the real data."""
+    """The three pinned faces, with a tag computed from the real data. They
+    exist only on the built-in demo campus."""
+    if not SESSION.is_demo:
+        return []
     u = SESSION.u
     out = []
     for eid, (name, name_en, kind) in PERSONAS.items():
@@ -338,8 +429,6 @@ def apply_change(body: ApplyBody) -> dict:
         c = body.constraint or (SESSION.pending or {}).get("constraint")
         if c is None:
             raise HTTPException(400, "Nothing to apply.")
-        if SESSION.current is None:
-            raise HTTPException(409, "Generate a schedule first.")
         result = SESSION.apply_constraint(c, short_label(SESSION.u, c))
         if result["ok"]:
             SESSION.pending = None

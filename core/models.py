@@ -39,6 +39,7 @@ class Room:
     building_id: str
     capacity: int
     accessible: bool
+    kind: str = "lecture"  # "lecture" or "lab"
 
     @property
     def floor(self) -> int | None:
@@ -63,6 +64,7 @@ class Course:
     name_ar: str
     department: str
     level: int
+    needs_lab: bool = False
 
 
 @dataclass

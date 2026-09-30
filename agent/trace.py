@@ -77,9 +77,10 @@ def for_message(u: University, message: str, tools, card: dict | None) -> list[d
 
     if card["kind"] == "what_if":
         n = card.get("moved_count", 0)
+        total = len(u.meetings)
         out.append(step("preview solved", "حُلّت المعاينة", "ok",
-                        f"{120 - n} kept, {n} would move",
-                        f"{120 - n} ثابتة، {n} ستُنقل"))
+                        f"{total - n} kept, {n} would move",
+                        f"{total - n} ثابتة، {n} ستُنقل"))
 
     out.append(step("waiting for approval", "بانتظار الموافقة", "wait",
                     "nothing applied yet", "لم يُطبَّق شيء بعد"))
@@ -97,6 +98,15 @@ def for_apply(u: University, constraint: dict, result: dict, total: int) -> list
                  result.get("message", "لا يوجد جدول ممكن")),
             step("rules check", "فحص القواعد", "fail",
                  f"conflicts with: {blocking}", f"يتعارض مع: {blocking}"),
+        ]
+
+    if result.get("stage") == "setup":
+        n = len(result.get("rules", []))
+        return [
+            step("rule saved for the build", "حُفظت القاعدة للبناء", "ok", label, label),
+            step("feasibility check", "فحص الإمكانية", "ok",
+                 f"a timetable still exists with all {n} setup rules",
+                 f"يوجد جدول ممكن مع قواعد الإعداد كلها ({n})"),
         ]
 
     v = result["version"]

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -48,9 +49,19 @@ class Session:
 
     def __init__(self) -> None:
         self.lock = threading.Lock()
-        self.u: University = generate()
+        self._plock = threading.Lock()
+        self.load(generate(), is_demo=True)
+
+    def load(self, u: University, is_demo: bool, report: dict | None = None,
+             source: str = "demo") -> None:
+        """Start over on a campus: the built-in demo or an uploaded workbook."""
+        self.u = u
+        self.is_demo = is_demo
+        self.report = report
+        self.source = source
         self.baseline: Assignment = build_baseline(self.u)
         self.baseline_metrics = compute(self.u, self.baseline)
+        self._campus_key = campus_key(u)
         self.profiles: dict[str, dict] = {}
         self.active_profile = "balanced"
         self.versions: list[Version] = []
@@ -58,11 +69,11 @@ class Session:
         self.pending: dict | None = None
         self.chat: list[dict] = []
         self.history: list = []
+        self.build_seconds: float | None = None
         self.progress: dict = {
             "stage": "idle", "done": 0, "total": 0, "solved": [],
             "rounds_done": 0, "rounds_total": 0,
         }
-        self._plock = threading.Lock()
 
     # --- schedules -----------------------------------------------------
     @property
@@ -75,6 +86,7 @@ class Session:
 
     def generate_all(self) -> dict:
         if not self.profiles:
+            started = time.time()
             self.progress = {
                 "stage": "solving",
                 "done": 0,
@@ -83,11 +95,16 @@ class Session:
                 "rounds_done": 0,
                 "rounds_total": len(PROFILES) * DEFAULT_ROUNDS,
             }
-            with ThreadPoolExecutor(max_workers=3) as pool:
-                results = dict(
-                    zip(PROFILES, pool.map(self._solve_profile, PROFILES))
-                )
+            try:
+                with ThreadPoolExecutor(max_workers=3) as pool:
+                    results = dict(
+                        zip(PROFILES, pool.map(self._solve_profile, PROFILES))
+                    )
+            except BuildError:
+                self.progress = {**self.progress, "stage": "failed"}
+                raise
             self.profiles = results
+            self.build_seconds = round(time.time() - started, 1)
             self.progress = {
                 "stage": "done",
                 "done": len(PROFILES),
@@ -105,7 +122,10 @@ class Session:
         if cached is not None:
             out = cached
         else:
-            r = solve(self.u, profile, time_limit=30, on_round=self._tick)
+            r = solve(self.u, profile, constraints=list(self.constraints),
+                      time_limit=30, on_round=self._tick)
+            if r.assignment is None:
+                raise BuildError(r.message or "No schedule satisfies these rules.")
             out = {
                 "assignment": r.assignment,
                 "metrics": compute(self.u, r.assignment),
@@ -123,8 +143,12 @@ class Session:
             self.progress["rounds_done"] = self.progress.get("rounds_done", 0) + 1
 
     def _cache_path(self, profile: str) -> Path:
+        # the whole campus and the setup rules, not just the section ids: an
+        # uploaded file can reuse S01..S60 and must not load the demo's schedule
         key = hashlib.sha256(
-            json.dumps([profile, sorted(self.u.section_by_id)], sort_keys=True).encode()
+            json.dumps(
+                [profile, self._campus_key, self.constraints], sort_keys=True, default=str
+            ).encode()
         ).hexdigest()[:16]
         return CACHE / f"{profile}-{key}.json"
 
@@ -167,6 +191,7 @@ class Session:
             },
             "active_profile": self.active_profile,
             "version": len(self.versions) - 1 if self.versions else None,
+            "build_seconds": self.build_seconds,
         }
 
     # --- versions ------------------------------------------------------
@@ -190,8 +215,22 @@ class Session:
         return v
 
     def apply_constraint(self, constraint: dict, label: str) -> dict:
-        """Minimal-change re-solve. Reports the blocking constraints on failure."""
+        """Minimal-change re-solve. Reports the blocking constraints on failure.
+        Before the first build there is nothing to re-solve: the rule is kept as
+        a setup rule and every profile is built with it."""
         proposed = self.constraints + [constraint]
+        if self.current is None:
+            r = solve(self.u, self.active_profile, constraints=proposed, rounds=0)
+            if r.assignment is None:
+                return {
+                    "ok": False,
+                    "stage": "setup",
+                    "message": r.message or "No schedule satisfies these rules.",
+                    "blocking": self._blocking(constraint),
+                }
+            self.constraints = proposed
+            self.profiles = {}
+            return {"ok": True, "stage": "setup", "rules": self.setup_rules()}
         r = solve(
             self.u,
             self.active_profile,
@@ -220,6 +259,23 @@ class Session:
             if r.assignment is not None:
                 out.append(c)
         return out or [new_constraint]
+
+    def remove_setup_rule(self, index: int) -> dict:
+        if self.current is not None:
+            return {"ok": False, "message": "The timetable is built; use undo instead."}
+        if not 0 <= index < len(self.constraints):
+            return {"ok": False, "message": "No such rule."}
+        self.constraints.pop(index)
+        return {"ok": True, "rules": self.setup_rules()}
+
+    def setup_rules(self) -> list[dict]:
+        from agent.describe import describe, short_label
+
+        return [
+            {"index": i, "constraint": c, "label": short_label(self.u, c),
+             "describe": describe(self.u, c)}
+            for i, c in enumerate(self.constraints)
+        ]
 
     def undo(self) -> dict:
         if len(self.versions) <= 1:
@@ -273,6 +329,33 @@ class Session:
 
     def change_log(self) -> list[dict]:
         return [self.version_payload(v) for v in self.versions]
+
+
+def campus_key(u: University) -> str:
+    """A fingerprint of everything a solve depends on. Order-independent, so
+    a workbook that round-trips the demo campus shares its cache."""
+    payload = {
+        "sections": sorted(
+            (s.id, s.course_id, s.instructor_id, s.enrollment,
+             sorted(u.serving_cohorts.get(s.id, ())))
+            for s in u.sections
+        ),
+        "courses": sorted((c.id, c.needs_lab) for c in u.courses),
+        "rooms": sorted((r.id, r.building_id, r.capacity, r.accessible, r.kind)
+                        for r in u.rooms),
+        "instructors": sorted((i.id, sorted(i.unavailable_slots)) for i in u.instructors),
+        "walk": sorted((a, b, m) for (a, b), m in u.walk.items()),
+        "students": sorted(
+            (sorted(s.section_ids), s.is_repeater, s.needs_accessibility)
+            for s in u.students
+        ),
+        "meetings": sorted(m.id for m in u.meetings),
+    }
+    return hashlib.sha256(json.dumps(payload, default=str).encode()).hexdigest()
+
+
+class BuildError(RuntimeError):
+    """No schedule satisfies the campus and its setup rules."""
 
 
 SESSION = Session()
