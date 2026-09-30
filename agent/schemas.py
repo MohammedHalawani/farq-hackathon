@@ -65,12 +65,33 @@ class SectionRequireAccessible(BaseModel, extra="forbid"):
     section_id: str
 
 
+def _check_days_or_all(v: list[int]) -> list[int]:
+    """A campus break with no days named applies to every day."""
+    return _check_days(v) if v else list(range(N_DAYS))
+
+
+class CampusBreak(BaseModel, extra="forbid"):
+    type: Literal["campus_break"]
+    days: list[int] = Field(default_factory=lambda: list(range(N_DAYS)))
+    slots: list[int] = Field(min_length=1)
+
+    _d = field_validator("days")(_check_days_or_all)
+    _s = field_validator("slots")(_check_slots)
+
+
+class CourseNeedsLab(BaseModel, extra="forbid"):
+    type: Literal["course_needs_lab"]
+    course_id: str
+
+
 CONSTRAINTS = {
     "instructor_unavailable": InstructorUnavailable,
     "section_avoid_slots": SectionAvoidSlots,
     "room_closed": RoomClosed,
     "instructor_max_daily": InstructorMaxDaily,
     "section_require_accessible": SectionRequireAccessible,
+    "campus_break": CampusBreak,
+    "course_needs_lab": CourseNeedsLab,
 }
 
 
@@ -96,10 +117,14 @@ CONSTRAINT_TOOL_SCHEMA = {
         "instructor_id": {"type": "string", "description": "e.g. I01 (from get_entity)"},
         "section_id": {"type": "string", "description": "e.g. S12 (from get_entity)"},
         "room_id": {"type": "string", "description": "e.g. B12 (from get_entity)"},
+        "course_id": {"type": "string", "description": "e.g. C04 (from get_entity)"},
         "days": {
             "type": "array",
             "items": {"type": "integer"},
-            "description": "0=Sunday 1=Monday 2=Tuesday 3=Wednesday 4=Thursday",
+            "description": (
+                "0=Sunday 1=Monday 2=Tuesday 3=Wednesday 4=Thursday. "
+                "For campus_break, omit it to mean every day."
+            ),
         },
         "slots": {
             "type": "array",

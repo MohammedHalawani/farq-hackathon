@@ -54,12 +54,15 @@ class Session:
 
     def load(self, u: University, is_demo: bool, report: dict | None = None,
              source: str = "demo") -> None:
-        """Start over on a campus: the built-in demo or an uploaded workbook."""
+        """Start over on a campus: the built-in demo or an uploaded workbook.
+        The baseline is built first, so a campus it cannot place leaves the
+        session untouched."""
+        baseline = build_baseline(u)
         self.u = u
         self.is_demo = is_demo
         self.report = report
         self.source = source
-        self.baseline: Assignment = build_baseline(self.u)
+        self.baseline: Assignment = baseline
         self.baseline_metrics = compute(self.u, self.baseline)
         self._campus_key = campus_key(u)
         self.profiles: dict[str, dict] = {}

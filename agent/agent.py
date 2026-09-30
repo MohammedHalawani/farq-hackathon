@@ -6,7 +6,7 @@ import os
 from dotenv import load_dotenv
 
 from agent.describe import describe, short_label
-from agent.resolver import is_vague, resolve
+from agent.resolver import is_vague, one_course, resolve
 from agent.schemas import CONSTRAINT_TOOL_SCHEMA, parse_constraint
 from core.explain import explain_gap, explain_meeting
 from core.metrics import delta, moved_meetings
@@ -55,6 +55,24 @@ WHAT THE ADMINISTRATOR IS ASKING FOR
   class here") -> call explain_gap or explain_meeting and phrase what comes back.
   These return the real blocking constraints; report them, do not speculate.
 
+KINDS OF RULE
+- "No classes at X for anyone" / "لا محاضرات من ١٢ إلى ١" / a prayer or lunch break
+  for the whole campus -> campus_break with those slots, and the days only if the
+  administrator named days (omit days for every day). It names no person, so do
+  not call get_entity for it.
+- "Course X needs a lab" / "مادة X تحتاج معمل" -> course_needs_lab with the course
+  id. Look the course up with get_entity (kind "course").
+- One person or one section -> instructor_unavailable, instructor_max_daily,
+  section_avoid_slots, section_require_accessible. One room -> room_closed.
+
+BEFORE THE FIRST BUILD
+The administrator may state rules before any timetable exists. These are setup
+rules: propose them exactly the same way, and say that once confirmed they are
+applied when the timetable is built. Tools that read a timetable (what_if,
+explain_gap, explain_meeting, get_schedule, get_metrics) answer "no timetable
+built yet" until then — pass that on and tell the administrator to build first
+(Data tab). Never invent an answer instead.
+
 TIME
 Days are 0=Sunday, 1=Monday, 2=Tuesday, 3=Wednesday, 4=Thursday. Friday and Saturday
 are the weekend and do not exist. The teaching day is 8 one-hour slots:
@@ -69,7 +87,7 @@ RAW_TOOLS = [
         "name": "get_entity",
         "description": (
             "Fuzzy-match a name the administrator typed against instructors, rooms, "
-            "sections, cohorts and students. Handles Arabic and English, and typos. "
+            "courses, sections, cohorts and students. Handles Arabic and English, and typos. "
             "Always use this before naming any ID."
         ),
         "input_schema": {
@@ -80,10 +98,11 @@ RAW_TOOLS = [
                 "name_query": {"type": "string"},
                 "kind": {
                     "type": "string",
-                    "enum": ["instructor", "room", "section", "cohort", "student"],
+                    "enum": ["instructor", "room", "course", "section", "cohort", "student"],
                     "description": (
-                        "Optional hint. A 'section' is one class group (S19); a "
-                        "'cohort' is a department and level (BA-L3). Omit it if unsure."
+                        "Optional hint. A 'course' is a subject (C04, Networks); a "
+                        "'section' is one class group of it (S19); a 'cohort' is a "
+                        "department and level (BA-L3). Omit it if unsure."
                     ),
                 },
             },
@@ -184,6 +203,12 @@ TOOLS = [
 ]
 
 
+NO_TIMETABLE = {
+    "error": "No timetable built yet — build it first (Data tab, step 3). Rules "
+    "proposed now are setup rules and are applied when the timetable is built."
+}
+
+
 class Tools:
     """Every tool runs deterministic Python. The model only chooses which to call."""
 
@@ -208,6 +233,22 @@ class Tools:
     def t_get_entity(self, name_query: str, kind: str | None = None) -> dict:
         matches = resolve(self.s.u, name_query, kind)
         vague = is_vague(name_query)
+        course = one_course(matches)
+        if course is not None:
+            # a course and its own sections: one thing, named two ways
+            self.lookups.append({"query": name_query, "count": 1, "vague": False})
+            secs = [m["id"] for m in matches if m["kind"] == "section"]
+            return {
+                "query": name_query,
+                "match_count": len(matches),
+                "matches": matches,
+                "note": (
+                    f"One course, {course}, and its section(s) {', '.join(secs)}. "
+                    f"For a rule about the whole course use course_id {course}. "
+                    "For a rule about one section use its section id, and ask which "
+                    "section only if there are several."
+                ),
+            }
         self.lookups.append({"query": name_query, "count": len(matches), "vague": vague})
         return {
             "query": name_query,
@@ -259,7 +300,7 @@ class Tools:
             return {"feasible": True, "meetings_moved": 0, "metric_changes": {},
                     "note": "Preview skipped (evaluation mode)."}
         if self.s.current is None:
-            return {"error": "No schedule yet. Run the solver first."}
+            return NO_TIMETABLE
         r = solve(
             self.s.u,
             self.s.active_profile,
@@ -312,7 +353,7 @@ class Tools:
 
     def t_explain_gap(self, entity_id: str, day: int) -> dict:
         if self.s.current is None:
-            return {"error": "No schedule yet. Run the solver first."}
+            return NO_TIMETABLE
         out = explain_gap(self.s.u, self.s.current, self.s.constraints, entity_id, day)
         if "error" not in out:
             self.overlay = {
@@ -328,14 +369,14 @@ class Tools:
 
     def t_explain_meeting(self, meeting_id: str) -> dict:
         if self.s.current is None:
-            return {"error": "No schedule yet. Run the solver first."}
+            return NO_TIMETABLE
         return explain_meeting(self.s.u, self.s.current, self.s.constraints, meeting_id)
 
     def t_get_schedule(self, entity_type: str, entity_id: str) -> dict:
         from api.main import _meetings_for
 
         if self.s.current is None:
-            return {"error": "No schedule yet. Run the solver first."}
+            return NO_TIMETABLE
         a = self.s.current
         rows = []
         for mid in _meetings_for(entity_type, entity_id):
@@ -358,7 +399,7 @@ class Tools:
 
     def t_get_metrics(self) -> dict:
         if self.s.current is None:
-            return {"error": "No schedule yet. Run the solver first."}
+            return NO_TIMETABLE
         keep = lambda m: {k: v for k, v in m.items() if not isinstance(v, (list, dict))}
         return {"current": keep(self.s.current_metrics), "baseline": keep(self.s.baseline_metrics)}
 
@@ -368,6 +409,7 @@ class Tools:
             ("instructor_id", u.instructor_by_id, "instructor"),
             ("room_id", u.room_by_id, "room"),
             ("section_id", u.section_by_id, "section"),
+            ("course_id", u.course_by_id, "course"),
         ):
             if key in c and c[key] not in table:
                 raise ValueError(
@@ -379,6 +421,7 @@ BLOCK_ICONS = [
     ("already teaches", "instructor", "instructor busy", "المدرّس مشغول"),
     ("is not available", "unavailable", "not available", "غير متاح"),
     ("confirmed rule", "rule", "a confirmed rule", "قاعدة مؤكدة"),
+    ("needs a lab", "room", "no free lab", "لا يوجد معمل متاح"),
     ("no room", "room", "no free room", "لا توجد قاعة"),
     ("every accessible room", "access", "no accessible room", "لا قاعة مهيّأة"),
     ("all ", "room", "no free room", "لا توجد قاعة"),

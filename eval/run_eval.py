@@ -107,10 +107,57 @@ def grade(req: dict, out: dict) -> tuple[bool, str]:
             return False, "no lookup came back empty for a specific name"
         return True, ""
 
+    if kind == "no_timetable":
+        # before a build it must neither change anything nor make a number up
+        if proposed:
+            return False, "proposed a change instead of answering"
+        if not reply:
+            return False, "said nothing"
+        return True, ""
+
     return False, f"unknown expectation {kind}"
 
 
+def run_sequence(req: dict) -> dict:
+    """A coordinator's session on a fresh campus: state a setup rule, confirm
+    it, ask before the build, build, then ask about the result. The build is
+    real so the rule is checked on the timetable it produced."""
+    from api.state import Session
+    from core.models import slot_period
+
+    sess = Session()
+    history: list = []
+    for n, st in enumerate(req["steps"], start=1):
+        expect = st["expect"]
+        if st.get("then") == "build" and "text" not in st:
+            sess.generate_all()
+            hit = [m for m, s in sess.current.slot.items()
+                   if slot_period(s) in expect["slots"]]
+            if hit:
+                return {**req, "ok": False, "why": f"step {n}: {len(hit)} classes in "
+                        "the break", "reply": ""}
+            continue
+        tools = Tools(sess, dry_run=True)
+        try:
+            out = AGENT.handle(st["text"], sess, history, tools=tools)
+        except Exception as e:
+            return {**req, "ok": False, "why": f"step {n}: {type(e).__name__}: {e}",
+                    "reply": ""}
+        history = out["history"]
+        ok, why = grade({**req, "expect": expect}, out)
+        if not ok:
+            return {**req, "ok": False, "why": f"step {n}: {why}", "reply": out["reply"]}
+        if st.get("then") == "apply":
+            r = sess.apply_constraint(out["card"]["constraint"], "eval")
+            if not r["ok"] or r.get("stage") != "setup":
+                return {**req, "ok": False, "why": f"step {n}: not kept as a setup rule",
+                        "reply": out["reply"]}
+    return {**req, "ok": True, "why": "", "reply": ""}
+
+
 def run_one(req: dict) -> dict:
+    if "steps" in req:
+        return run_sequence(req)
     tools = Tools(SESSION, dry_run=True)
     try:
         out = AGENT.handle(req["text"], SESSION, [], tools=tools)

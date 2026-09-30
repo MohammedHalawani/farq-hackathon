@@ -103,6 +103,18 @@ def candidates(u: University) -> list[dict]:
                 "keys": cohort_keys(c),
             }
         )
+    for c in u.courses:
+        n = sum(1 for s in u.sections if s.course_id == c.id)
+        out.append(
+            {
+                "kind": "course",
+                "id": c.id,
+                "label": f"{c.id} — {c.name} / {c.name_ar} "
+                f"({c.department}-L{c.level}, {n} section{'s' if n != 1 else ''})",
+                "keys": [c.id, c.name, c.name_ar],
+                "course_id": c.id,
+            }
+        )
     for s in u.sections:
         course = u.course_by_id[s.course_id]
         out.append(
@@ -111,6 +123,7 @@ def candidates(u: University) -> list[dict]:
                 "id": s.id,
                 "label": f"{s.id} — {course.name} / {course.name_ar} ({s.cohort})",
                 "keys": [s.id, course.name, course.name_ar, f"{course.name} {s.cohort}"],
+                "course_id": course.id,
             }
         )
     for st in u.students:
@@ -169,6 +182,17 @@ def resolve(u: University, query: str, kind: str | None = None, limit: int = 5) 
         cutoff = best - (0.03 if best >= 0.9 else 0.06)
         top = [x for x in top if x[0] >= cutoff]
     return [
-        {"kind": c["kind"], "id": c["id"], "label": c["label"], "score": round(s, 3)}
+        {"kind": c["kind"], "id": c["id"], "label": c["label"], "score": round(s, 3),
+         **({"course_id": c["course_id"]} if "course_id" in c else {})}
         for s, c in top
     ]
+
+
+def one_course(matches: list[dict]) -> str | None:
+    """The course id when every match is that course or one of its sections:
+    naming a course is then not ambiguous, whichever the rule is about."""
+    ids = {m.get("course_id") for m in matches}
+    kinds = {m["kind"] for m in matches}
+    if len(matches) > 1 and len(ids) == 1 and None not in ids and "course" in kinds:
+        return ids.pop()
+    return None

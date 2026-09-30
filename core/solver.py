@@ -105,6 +105,10 @@ def _allowed_slots(u: University, constraints: list[dict]) -> dict[str, set[int]
             banned = _slot_set(c)
             for m in u.meetings_of_section.get(c["section_id"], []):
                 allowed[m.id] -= banned
+        elif c["type"] == "campus_break":
+            banned = _slot_set(c)
+            for m in u.meetings:
+                allowed[m.id] -= banned
     return allowed
 
 
@@ -121,6 +125,9 @@ def _allowed_rooms(u: University, constraints: list[dict]) -> dict[str, list[str
     need_access = u.sections_needing_accessible() | {
         c["section_id"] for c in constraints if c["type"] == "section_require_accessible"
     }
+    need_lab = {c.id for c in u.courses if c.needs_lab} | {
+        c["course_id"] for c in constraints if c["type"] == "course_needs_lab"
+    }
     allowed: dict[str, list[str]] = {}
     for m in u.meetings:
         sec = u.section_by_id[m.section_id]
@@ -130,6 +137,7 @@ def _allowed_rooms(u: University, constraints: list[dict]) -> dict[str, list[str
             if r.id not in closed
             and r.capacity >= sec.enrollment
             and (r.accessible or sec.id not in need_access)
+            and (r.kind == "lab" or sec.course_id not in need_lab)
         ]
         allowed[m.id] = rooms
     return allowed

@@ -47,6 +47,11 @@ def build_baseline(u: University) -> Assignment:
                 spot = _first_fit(u, sec, rooms, used_days, busy_instructor,
                                   busy_room, busy_cohort, set())
             if spot is None:
+                # a level with more meetings than hours: clash it rather than fail,
+                # the way a hand-built timetable would
+                spot = _first_fit(u, sec, rooms, used_days, busy_instructor,
+                                  busy_room, {}, set())
+            if spot is None:
                 raise RuntimeError(f"baseline could not place {m.id}")
             s, r = spot
             slot[m.id], room[m.id] = s, r

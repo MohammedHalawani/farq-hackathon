@@ -48,5 +48,15 @@
 {"id":47,"lang":"en","category":"question","text":"Why does student ST073 have a gap on Wednesday?","expect":{"kind":"tool","tool":"explain_gap","args":{"entity_id":"ST073","day":3}}},
 {"id":48,"lang":"ar","category":"what_if","text":"جرّب لو د. منى الزهراني ما تدرّس الأحد","expect":{"kind":"tool","tool":"what_if","constraint":{"type":"instructor_unavailable","instructor_id":"I07","days":[0],"slots":"all"}}},
 {"id":49,"lang":"en","category":"constraint","text":"Room B2-202 is closed for renovation","expect":{"kind":"constraint","constraint":{"type":"room_closed","room_id":"B2-202"}}},
-{"id":50,"lang":"ar","category":"ask_clarification","text":"أغلق قاعة B1","expect":{"kind":"ask_clarification"}}
+{"id":50,"lang":"ar","category":"ask_clarification","text":"أغلق قاعة B1","expect":{"kind":"ask_clarification"}},
+{"id":51,"lang":"ar","category":"campus_break","text":"ما نبي محاضرات وقت صلاة الظهر ١٢ إلى ١","expect":{"kind":"constraint","constraint":{"type":"campus_break","slots":[4]}}},
+{"id":52,"lang":"en","category":"campus_break","text":"No lectures after 2 on Thursday","expect":{"kind":"constraint","constraint":{"type":"campus_break","days":[4],"slots":[6,7]}}},
+{"id":53,"lang":"ar","category":"lab","text":"مادة الشبكات تحتاج معمل","expect":{"kind":"constraint","constraint":{"type":"course_needs_lab","course_id":"C04"}}},
+{"id":54,"lang":"en","category":"lab","text":"Operating Systems has to be taught in a lab","expect":{"kind":"constraint","constraint":{"type":"course_needs_lab","course_id":"C05"}}},
+{"id":55,"lang":"ar","category":"campus_break","text":"خلّوا الأربعاء بعد الظهر فاضي للكل، لا محاضرات","expect":{"kind":"constraint","constraint":{"type":"campus_break","days":[3],"slots":[4,5,6,7]}}},
+{"id":56,"lang":"ar","category":"lab","text":"مقرر قواعد البيانات لازم يكون بمعمل","expect":{"kind":"constraint","constraint":{"type":"course_needs_lab","course_id":"C03"}}},
+{"id":57,"lang":"ar","category":"campus_break","text":"الأحد الساعة ٨ لا تحطون أي محاضرة لأحد","expect":{"kind":"constraint","constraint":{"type":"campus_break","days":[0],"slots":[0]}}},
+{"id":58,"lang":"en","category":"what_if","text":"What if nobody had classes on Sunday at 8?","expect":{"kind":"tool","tool":"what_if","constraint":{"type":"campus_break","days":[0],"slots":[0]}}},
+{"id":59,"lang":"ar","category":"what_if","text":"وش يصير لو صار عندنا استراحة للكل من ١٢ إلى ١؟","expect":{"kind":"tool","tool":"what_if","constraint":{"type":"campus_break","slots":[4]}}},
+{"id":60,"lang":"ar","category":"setup_then_build","text":"لا محاضرات من ١٢ إلى ١ ← بناء ← سؤال","steps":[{"text":"لا محاضرات من ١٢ إلى ١","expect":{"kind":"constraint","constraint":{"type":"campus_break","slots":[4]}},"then":"apply"},{"text":"كم نسبة الطلاب بدون تعارض الحين؟","expect":{"kind":"no_timetable"}},{"then":"build","expect":{"kind":"no_class_in","slots":[4]}},{"text":"ليش عند CS-L3 فراغ يوم الأربعاء؟","expect":{"kind":"tool","tool":"explain_gap","args":{"entity_id":"CS-L3","day":3}}}]}
 ]

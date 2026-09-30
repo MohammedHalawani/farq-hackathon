@@ -10,6 +10,7 @@ from core.metrics import (
 from core.models import (
     DAYS,
     FIRST_HOUR,
+    N_DAYS,
     N_PERIODS,
     Assignment,
     University,
@@ -56,7 +57,19 @@ def _allowed(u: University, constraints: list[dict], mid: str, slot: int) -> lis
         if c["type"] == "section_avoid_slots" and c["section_id"] == sec.id:
             if slot_day(slot) in c["days"] and slot_period(slot) in c["slots"]:
                 reasons.append(f"a confirmed rule keeps {sec.id} out of that slot")
+        if c["type"] == "campus_break":
+            if slot_day(slot) in (c.get("days") or range(N_DAYS)) and slot_period(slot) in c["slots"]:
+                reasons.append(
+                    f"a confirmed rule (campus break) keeps every class out of "
+                    f"{hour(slot_period(slot))}"
+                )
     return reasons
+
+
+def needs_lab(u: University, constraints: list[dict], course_id: str) -> bool:
+    return u.course_by_id[course_id].needs_lab or any(
+        c["type"] == "course_needs_lab" and c["course_id"] == course_id for c in constraints
+    )
 
 
 def _room_options(
@@ -74,10 +87,13 @@ def _room_options(
         for other in a.slot
         if a.slot[other] == slot and other != mid
     }
-    fits = [r for r in u.rooms if r.capacity >= sec.enrollment]
+    lab = needs_lab(u, constraints, sec.course_id)
+    fits = [r for r in u.rooms if r.capacity >= sec.enrollment and (r.kind == "lab" or not lab)]
     ok, too_small, occupied, not_accessible = [], [], [], []
     for r in u.rooms:
         if r.id in closed:
+            continue
+        if lab and r.kind != "lab":
             continue
         if r.capacity < sec.enrollment:
             too_small.append(r.id)
@@ -91,7 +107,14 @@ def _room_options(
         ok.append(r.id)
     reasons = []
     if not ok:
-        if not fits:
+        if lab and not fits:
+            reasons.append(f"{sec.id} needs a lab and no lab seats {sec.enrollment} students")
+        elif lab and not (needs_access and not_accessible):
+            reasons.append(
+                f"{sec.id} needs a lab and every lab that seats {sec.enrollment} "
+                "is already taken at that hour"
+            )
+        elif not fits:
             reasons.append(f"no room seats {sec.enrollment} students")
         elif needs_access and not_accessible:
             reasons.append(
@@ -290,7 +313,9 @@ def explain_meeting(
     for reasons in blocked_slots.values():
         tally[reasons[0]] = tally.get(reasons[0], 0) + 1
 
-    fitting = [r for r in u.rooms if r.capacity >= sec.enrollment]
+    lab = needs_lab(u, constraints, sec.course_id)
+    fitting = [r for r in u.rooms
+               if r.capacity >= sec.enrollment and (r.kind == "lab" or not lab)]
     needs_access = sec.id in u.sections_needing_accessible()
     return {
         "meeting_id": meeting_id,
@@ -310,9 +335,12 @@ def explain_meeting(
             "rooms_big_enough": len(fitting),
             "of_which_accessible": sum(1 for r in fitting if r.accessible),
             "must_be_accessible": needs_access,
+            "must_be_lab": lab,
             "reason": (
                 "a student in this section needs an accessible room"
                 if needs_access
+                else "the course is taught in a lab"
+                if lab
                 else "any room that seats the section is allowed"
             ),
         },
