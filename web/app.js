@@ -697,6 +697,7 @@ async function sendMessage(text) {
       body: JSON.stringify({ message: text }),
     });
     pending.querySelector(".msg__body").textContent = out.reply;
+    if (out.choices?.length) pending.appendChild(choiceButtons(out.choices));
     state.pending = out.card || null;
     if (out.card && out.card.kind === "what_if" && out.card.moves) {
       state.moves = out.card.moves;
@@ -721,6 +722,31 @@ async function sendMessage(text) {
   } finally {
     state.busy = false;
   }
+}
+
+/** The candidates of an ambiguous lookup, named exactly as the database
+ *  stores them. The model may phrase the question; it never writes these. */
+function choiceButtons(choices) {
+  const box = el("div", "choices");
+  for (const c of choices) {
+    const b = el("button", "choice");
+    b.type = "button";
+    const main = el("span", "choice__name", c.name);
+    main.dir = "auto";
+    b.appendChild(main);
+    if (c.name_en && c.name_en !== c.name) {
+      const en = el("span", "choice__en", c.name_en);
+      en.dir = "ltr";
+      b.appendChild(en);
+    }
+    b.addEventListener("click", () => {
+      if (state.busy) return;
+      box.remove();
+      sendMessage(c.reply);
+    });
+    box.appendChild(b);
+  }
+  return box;
 }
 
 function deltaRows(deltas) {

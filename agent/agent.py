@@ -224,6 +224,9 @@ class Tools:
         self.calls: list[tuple[str, dict]] = []
         self.lookups: list[dict] = []
         self.overlay: dict | None = None
+        # candidates of the last ambiguous lookup, named as the database stores
+        # them, so the choice the admin clicks never passes through the model
+        self.choices: list[dict] | None = None
 
     def run(self, name: str, args: dict) -> dict:
         self.calls.append((name, args))
@@ -255,6 +258,8 @@ class Tools:
                 ),
             }
         self.lookups.append({"query": name_query, "count": len(matches), "vague": vague})
+        if len(matches) > 1 and not vague:
+            self.choices = _choices(self.s.u, matches)
         return {
             "query": name_query,
             "match_count": len(matches),
@@ -479,6 +484,35 @@ def _blocked_moves(moves: list[dict]) -> list[dict]:
     return out
 
 
+def _choices(u, matches: list[dict]) -> list[dict]:
+    """One button per candidate: the stored name, the English name if there is
+    one, and the text sent back when it is clicked."""
+    out = []
+    for m in matches:
+        kind, eid = m["kind"], m["id"]
+        name, name_en, reply = eid, "", eid
+        if kind == "instructor":
+            i = u.instructor_by_id[eid]
+            name, name_en, reply = i.name, i.name_en, i.name
+        elif kind == "course":
+            c = u.course_by_id[eid]
+            name, name_en, reply = c.name_ar, c.name, c.name_ar
+        elif kind == "section":
+            c = u.course_by_id[u.section_by_id[eid].course_id]
+            name, name_en = f"{eid} — {c.name_ar}", f"{eid} — {c.name}"
+        elif kind == "student":
+            st = u.student_by_id[eid]
+            name, name_en = st.name, st.name_en
+        out.append({"kind": kind, "id": eid, "name": name, "name_en": name_en,
+                    "reply": reply})
+    # two candidates can share a stored name; then the id is what tells them apart
+    names = [c["reply"] for c in out]
+    for c in out:
+        if names.count(c["reply"]) > 1:
+            c["reply"] = c["id"]
+    return out
+
+
 def _recent(history: list) -> list:
     """Keep the tail of the conversation, cut at a clean user turn so a tool
     result is never separated from the call that produced it."""
@@ -530,7 +564,7 @@ class Agent:
         if not ok:
             return {"reply": why, "card": None, "history": history, "offline": True,
                     "calls": [], "lookups": [], "tools": tools or Tools(session),
-                    "overlay": None}
+                    "overlay": None, "choices": None}
 
         tools = tools or Tools(session)
         messages = _recent(history) + [{"role": "user", "content": message}]
@@ -596,6 +630,8 @@ class Agent:
             "lookups": tools.lookups,
             "tools": tools,
             "overlay": tools.overlay,
+            # a proposal settles the question, so there is nothing left to pick
+            "choices": tools.choices if tools.card is None else None,
         }
 
 

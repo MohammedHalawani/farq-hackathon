@@ -422,6 +422,7 @@ def agent_message(body: Message) -> dict:
             "offline": out["offline"],
             "trace": trace,
             "overlay": out.get("overlay"),
+            "choices": out.get("choices"),
         }
 
 
