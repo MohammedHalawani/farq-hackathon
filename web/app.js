@@ -941,9 +941,7 @@ function renderSideInto(host, compact) {
         : "No change is waiting for confirmation."));
       host.appendChild(card);
     }
-    if (state.overlay) host.appendChild(gapCard(state.overlay));
-    if (state.lastApplied) host.appendChild(appliedCard(state.lastApplied));
-    if ((state.moves || []).length) host.appendChild(movesCard(state.moves));
+    appendContext(host, compact);
     return;
   }
 
@@ -983,9 +981,18 @@ function renderSideInto(host, compact) {
   actions.appendChild(cancel);
   card.appendChild(actions);
   host.appendChild(card);
-  if (state.overlay) host.appendChild(gapCard(state.overlay));
-  if (state.lastApplied) host.appendChild(appliedCard(state.lastApplied));
-  if ((state.moves || []).length) host.appendChild(movesCard(state.moves));
+  appendContext(host, compact);
+}
+
+/** The cards that follow the conversation. In the narrow panel what moved
+ *  comes first, right under the "applied" line; the Agent tab keeps its order. */
+function appendContext(host, compact) {
+  const moves = (state.moves || []).length ? movesCard(state.moves) : null;
+  const applied = state.lastApplied ? appliedCard(state.lastApplied) : null;
+  const gap = state.overlay ? gapCard(state.overlay) : null;
+  for (const card of compact ? [moves, applied, gap] : [gap, applied, moves]) {
+    if (card) host.appendChild(card);
+  }
 }
 
 function gapCard(overlay) {
@@ -1301,6 +1308,7 @@ function renderData() {
   $("#step-build").classList.toggle("step--done", built);
   $("#export").disabled = !built;
   $("#open-timetable").hidden = !built;
+  $("#export-data").hidden = !built;
   setPlaceholders();
   renderSuggest();
   // redrawn on every render so the unit follows the language
@@ -1439,7 +1447,9 @@ $("#use-demo").addEventListener("click", async () => {
   await resetClient();
 });
 $("#open-timetable").addEventListener("click", () => showTab("timetable"));
-$("#export").addEventListener("click", () => { window.location.href = "/api/data/export"; });
+for (const id of ["#export", "#export-data"]) {
+  $(id).addEventListener("click", () => { window.location.href = "/api/data/export"; });
+}
 
 /* ---------- boot ---------- */
 (async function boot() {
