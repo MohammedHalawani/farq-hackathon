@@ -45,8 +45,8 @@ def test_applied_and_undo_lines_are_in_the_session_chat(client, monkeypatch):
 
     out = client.post("/api/changes/apply", json={"constraint": AHMED}).json()
     assert out["ok"] and out["version"]["moved_count"] == 1
-    assert out["chat"]["text_ar"] == "تم التطبيق. نُقلت 1 محاضرة."
-    assert out["chat"]["text_en"] == "Applied. 1 meetings moved."
+    assert out["chat"]["text_ar"] == "تم التطبيق. عدد المحاضرات المنقولة: 1"
+    assert out["chat"]["text_en"] == "Applied. Meetings moved: 1."
 
     undo = client.post("/api/changes/undo").json()
     assert undo["ok"] and undo["chat"]["text_ar"] == "تم التراجع."

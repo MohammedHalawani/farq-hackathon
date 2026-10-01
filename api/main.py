@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -12,6 +13,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from agent.trace import for_apply, for_message
+from agent.catalog import RULE_TYPES, unavailable_line
+from agent.catalog import as_payload as rules_catalog
 from api.state import SESSION, BuildError
 from core.metrics import (
     ACCESSIBLE_TRANSIT_LIMIT,
@@ -35,6 +38,8 @@ def meta() -> dict:
         "days_ar": DAYS_AR,
         "periods": [f"{FIRST_HOUR + p:02d}:00" for p in range(N_PERIODS)],
         "accessible_transit_limit": ACCESSIBLE_TRANSIT_LIMIT,
+        # rule types, built-in rules and the "You can ask for" menu, from one place
+        "rules": rules_catalog(),
         "counts": {
             "students": len(u.students),
             "sections": len(u.sections),
@@ -411,6 +416,8 @@ def agent_message(body: Message) -> dict:
         SESSION.history = out["history"]
         SESSION.pending = out["card"]
         SESSION.chat.append({"role": "agent", "text": out["reply"]})
+        # a request no rule type covers gets a line written here, not by the model
+        status_line = SESSION.say(*unavailable_line()) if matched_nothing(out) else None
         trace = (
             []
             if out["offline"]
@@ -423,7 +430,50 @@ def agent_message(body: Message) -> dict:
             "trace": trace,
             "overlay": out.get("overlay"),
             "choices": out.get("choices"),
+            "status_line": status_line,
         }
+
+
+# tools that answer a question: a turn that used one was not an unsupported rule
+ANSWERING_TOOLS = {"explain_gap", "explain_meeting", "get_schedule", "get_metrics", "what_if"}
+_REFUSALS_EN = re.compile(
+    r"not (?:yet )?(?:supported|available|possible)|isn't (?:supported|available|possible)|"
+    r"(?:can't|cannot|can not|unable to) (?:add|set|create|record|express|handle|support)|"
+    r"(?:don't|do not|doesn't|does not) (?:have|support) (?:a|any|that|this)|"
+    r"no (?:rule|constraint) (?:type )?(?:for|that|covers)",
+    re.IGNORECASE,
+)
+_REFUSALS_AR = ("غير مدعوم", "غير متاح", "غير متوفر", "لا يمكنني", "لا استطيع",
+                "لا يمكن اضافه", "لا يمكن تطبيق", "لا يتوفر", "لا تتوفر", "ليس من ضمن",
+                "ليست من ضمن", "خارج نطاق", "لا يوجد نوع", "لا توجد قاعده", "لا يوجد قيد")
+
+
+def _fold(text: str) -> str:
+    text = re.sub("[\u064b-\u0652\u0640]", "", text)
+    return re.sub("[إأآ]", "ا", text).replace("ة", "ه").replace("ى", "ي")
+
+
+def matched_nothing(out: dict) -> bool:
+    """True when the request matched no rule type: nothing proposed, nothing
+    previewed or explained, no name left unclear, and either a proposal failed
+    on an unknown type or the model's reply says it cannot do it."""
+    if out.get("offline") or out.get("card") or out.get("choices"):
+        return False
+    tools = out.get("tools")
+    calls = getattr(tools, "calls", [])
+    if any(name in ANSWERING_TOOLS for name, _ in calls):
+        return False
+    if any(l["vague"] or l["count"] != 1 for l in getattr(tools, "lookups", [])):
+        return False                         # it is asking which one, or not found
+    unknown_type = any(
+        name == "propose_constraint"
+        and (args.get("constraint") or {}).get("type") not in RULE_TYPES
+        for name, args in calls
+    )
+    reply = out.get("reply") or ""
+    return unknown_type or bool(_REFUSALS_EN.search(reply)) or any(
+        r in _fold(reply) for r in _REFUSALS_AR
+    )
 
 
 @app.get("/api/agent/state")

@@ -295,7 +295,8 @@ class Session:
         self.constraints = proposed
         v = self._push(label, constraint, r.assignment)
         n = len(v.moved)
-        line = self.say(f"Applied. {n} meetings moved.", f"تم التطبيق. نُقلت {n} محاضرة.")
+        line = self.say(f"Applied. Meetings moved: {n}.",
+                        f"تم التطبيق. عدد المحاضرات المنقولة: {n}")
         return {"ok": True, "version": self.version_payload(v), "chat": line}
 
     def _blocking(self, new_constraint: dict) -> list[dict]:
