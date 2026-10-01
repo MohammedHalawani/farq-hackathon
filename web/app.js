@@ -848,7 +848,8 @@ function deltaRows(deltas) {
     any = true;
     const improved = d.better === "higher" ? d.delta > 0 : d.delta < 0;
     const tr = el("tr");
-    tr.appendChild(el("td", "metric-name", d.label));
+    // the metric's name in the UI's language; the server's label is English
+    tr.appendChild(el("td", "metric-name", METRIC_LABEL(key) || d.label));
     tr.appendChild(el("td", "num", fmt(key, d.before)));
     tr.appendChild(el("td", "num " + (improved ? "delta-up" : "delta-down"), fmt(key, d.after)));
     tb.appendChild(tr);
@@ -1469,16 +1470,21 @@ function placeAssistant() {
   fitAssistant();
 }
 
-/** Size the panel to the space below where it sits, so the send box is
- *  always on screen: a little shorter at the top of the page, the full
- *  window once it sticks under the header. */
+/** One height that keeps the whole panel, send box included, on screen
+ *  wherever the page is scrolled: it must fit below step 1 at the top of
+ *  the page, and between the header and the bottom of the steps once it
+ *  sticks and the page reaches its end. */
 function fitAssistant() {
   const panel = $("#data-assistant");
   if (PHONE.matches) { panel.style.height = ""; return; }
-  if (!panel.offsetParent) return;                       // Data tab not showing
-  const stuck = parseFloat(getComputedStyle(panel).top) || 0;
-  const top = Math.max(panel.getBoundingClientRect().top, stuck);
-  panel.style.height = Math.max(320, window.innerHeight - top - 16) + "px";
+  const layout = $(".data-layout");
+  if (!layout.offsetParent) return;                      // Data tab not showing
+  const atRest = layout.getBoundingClientRect().top + window.scrollY;   // level with step 1
+  const stuck = parseFloat(getComputedStyle(panel).top) || 0;          // under the header
+  const below = parseFloat(getComputedStyle($("main")).paddingBottom) || 0;
+  const gap = 16;
+  const h = Math.min(window.innerHeight - atRest - gap, window.innerHeight - stuck - below - gap);
+  panel.style.height = Math.max(320, Math.floor(h)) + "px";
 }
 
 let fitQueued = false;
@@ -1487,7 +1493,6 @@ const queueFit = () => {
   fitQueued = true;
   requestAnimationFrame(() => { fitQueued = false; fitAssistant(); });
 };
-window.addEventListener("scroll", queueFit, { passive: true });
 window.addEventListener("resize", placeAssistant);
 PHONE.addEventListener("change", placeAssistant);
 

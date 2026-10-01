@@ -876,7 +876,8 @@ td.num, th.num { text-align: end; font-family: var(--font-mono); font-variant-nu
 
 .summary {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(110px, 100%), 1fr));
+  /* six counts, always 3 x 2: an uneven wrap left grey empty cells */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1px;
   margin: 0;
   border: 1px solid var(--color-rule);
