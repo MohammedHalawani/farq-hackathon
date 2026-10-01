@@ -29,6 +29,9 @@
 <main>
   <!-- 0 · Data: the coordinator's job, in three steps -->
   <section class="panel is-active" id="panel-data" role="tabpanel">
+    <div class="data-layout">
+    <!-- the heading sits in the steps column, so the assistant starts at the top -->
+    <div class="data-main">
     <div class="head">
       <div>
         <p class="eyebrow" data-i18n="eyebrow_data">From your file to a finished timetable</p>
@@ -36,7 +39,6 @@
         <p data-i18n="p_data">Today this is built by hand, one level at a time, over one to one and a half weeks. Bring in the file you already prepare, state your rules, and let the solver build every level at once.</p>
       </div>
     </div>
-    <div class="data-layout">
     <ol class="steps">
       <li class="card step" id="step-data">
         <div class="step__num" aria-hidden="true">1</div>
@@ -83,6 +85,7 @@
         </div>
       </li>
     </ol>
+    </div>
 
     <!-- the assistant, beside the steps: the same conversation as the Agent tab -->
     <aside class="card assistant" id="data-assistant" aria-labelledby="assistant-title">

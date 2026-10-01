@@ -964,6 +964,7 @@ td.num, th.num { text-align: end; font-family: var(--font-mono); font-variant-nu
   align-items: start;
 }
 
+.data-main { min-width: 0; }
 .data-layout .steps { max-width: none; }
 
 .assistant {
