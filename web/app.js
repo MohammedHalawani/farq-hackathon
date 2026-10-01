@@ -37,6 +37,8 @@ const I18N = {
     s2_title: "Add your rules",
     s2_p: "State rules to the assistant in Arabic or English. Each one is checked, shown to you, and applied only when you confirm.",
     s2_pointer: "Write your rules in the assistant →",
+    builtin_title: "Built-in rules (always enforced)", your_rules: "Your rules",
+    ask_menu: "You can ask for",
     assistant_title: "Assistant", open_timetable: "Open the timetable",
     ph_setup: "Type a rule, e.g. no lectures from 12 to 1",
     ph_built: "Ask about the timetable or request a change",
@@ -77,6 +79,8 @@ const I18N = {
     s2_title: "أضيفي القواعد",
     s2_p: "اذكري قواعدك للمساعد بالعربي أو بالإنجليزي. كل قاعدة تُفحص وتُعرض عليك، ولا تُطبَّق إلا بعد تأكيدك.",
     s2_pointer: "← اكتب القواعد في المساعد",
+    builtin_title: "القواعد الأساسية (مطبّقة دائمًا)", your_rules: "قواعدك",
+    ask_menu: "يمكنك أن تطلب",
     assistant_title: "المساعد", open_timetable: "افتحي الجدول",
     ph_setup: "اكتب قاعدة، مثل: لا محاضرات من ١٢ إلى ١",
     ph_built: "اسأل عن الجدول أو اطلب تعديلًا",
@@ -694,8 +698,41 @@ function scrollChat() {
   for (const v of CHAT_VIEWS) v.scroller.scrollTop = v.scroller.scrollHeight;
 }
 
+/** The panel's "You can ask for" menu, grouped, from the catalog: before the
+ *  build only the rules that can be set then; afterwards every rule and the
+ *  questions. A chip fills the box with a ready example. */
+function renderMenu(v) {
+  v.suggest.replaceChildren();
+  v.suggest.classList.add("menu");
+  const built = isBuilt();
+  v.suggest.appendChild(el("div", "menu__title", t("ask_menu")));
+  const items = [
+    ...catalog().types.filter((x) => built || x.setup).map((x) => ({ ...x })),
+    ...(built ? catalog().questions.map((q) => ({ ...q, group: "ask" })) : []),
+  ];
+  for (const [key, label] of Object.entries(catalog().groups)) {
+    const mine = items.filter((x) => x.group === key);
+    if (!mine.length) continue;
+    const row = el("div", "menu__group");
+    row.appendChild(el("span", "menu__label", L(label)));
+    for (const x of mine) {
+      const b = el("button", "menu__chip", state.lang === "ar" ? x.name_ar : x.name_en);
+      b.type = "button";
+      const example = state.lang === "ar" ? x.example_ar : x.example_en;
+      b.title = example;
+      b.addEventListener("click", () => {
+        v.input.value = example;
+        v.input.focus();
+      });
+      row.appendChild(b);
+    }
+    v.suggest.appendChild(row);
+  }
+}
+
 function renderSuggest() {
   for (const v of CHAT_VIEWS) {
+    if (v.compact) { renderMenu(v); continue; }
     v.suggest.replaceChildren();
     for (const text of (isBuilt() ? SUGGEST : SUGGEST_SETUP)[state.lang]) {
       const b = el("button", null, text);
@@ -793,6 +830,7 @@ async function sendMessage(text) {
     pending.text = out.reply;
     pending.choices = out.choices || null;
     renderMessage(pending);
+    addServerLine(out.status_line);     // a request no rule type covers
     state.pending = out.card || null;
     if (out.card && out.card.kind === "what_if" && out.card.moves) {
       state.moves = out.card.moves;
@@ -937,6 +975,32 @@ function renderTraceInto(host, trace, { animate = true } = {}) {
   trace.forEach((t, i) => setTimeout(() => paint(t), i * 300));
 }
 
+/** The checks a card has already passed. A card only exists once the schema
+ *  accepted the rule and every id was found, so these are read off it, not
+ *  re-run; whether a timetable still exists is checked on Apply. */
+function cardChecks(c) {
+  const ar = state.lang === "ar";
+  const k = c.constraint;
+  const rows = [[true, ar ? "نوع قاعدة مدعوم" : "supported rule type"]];
+  if (["instructor_id", "room_id", "section_id", "course_id", "cohort"].some((x) => k[x]))
+    rows.push([true, ar ? "الأسماء موجودة في البيانات" : "names found in the data"]);
+  if (k.days || k.slots)
+    rows.push([true, ar ? "اليوم والوقت ضمن أسبوع التدريس" : "day and time within the teaching week"]);
+  if (c.kind === "what_if" && c.feasible !== false)
+    rows.push([true, ar ? "اجتازت المعاينة" : "preview passed"]);
+  else if (c.kind !== "what_if")
+    rows.push([null, isBuilt()
+      ? (ar ? "يُعاد الحل ويُفحص الجدول عند التطبيق" : "re-solved and checked when you apply")
+      : (ar ? "تُفحص إمكانية الجدول عند التطبيق" : "timetable feasibility checked when you apply")]);
+  const ul = el("ul", "checks");
+  for (const [ok, text] of rows) {
+    const li = el("li", "check" + (ok ? " check--ok" : " check--wait"), (ok ? "\u2713 " : "\u25CC ") + text);
+    li.dir = "auto";
+    ul.appendChild(li);
+  }
+  return ul;
+}
+
 function renderSide() {
   for (const v of CHAT_VIEWS) renderSideInto(v.side, v.compact);
 }
@@ -960,10 +1024,15 @@ function renderSideInto(host, compact) {
   const card = el("div", "card");
   const head = el("div", "card__head");
   head.appendChild(el("h3", null, state.lang === "ar" ? c.describe.title_ar : c.describe.title_en));
-  head.appendChild(el("span", "chip " + (c.kind === "what_if" ? "chip--signal" : ""),
+  const tags = el("div", "card__tags");
+  const tag = ruleTag(c.constraint.type);
+  if (tag) tags.appendChild(tag);
+  tags.appendChild(el("span", "chip " + (c.kind === "what_if" ? "chip--signal" : ""),
     c.kind === "what_if" ? t("preview") : t("confirm")));
+  head.appendChild(tags);
   card.appendChild(head);
   card.appendChild(cardRows(c.describe));
+  card.appendChild(cardChecks(c));
 
   if (c.kind === "what_if" && c.feasible === false) {
     const n = el("div", "notice notice--bad",
@@ -1233,6 +1302,29 @@ function renderChanges() {
   table.appendChild(tb);
 }
 
+/* ---------- the rule catalog (agent/catalog.py, via /api/meta) ---------- */
+const catalog = () => state.meta?.rules || { types: [], questions: [], builtin: [], groups: {}, kinds: {} };
+const ruleInfo = (type) => catalog().types.find((x) => x.type === type);
+const L = (pair) => (pair ? (state.lang === "ar" ? pair.ar : pair.en) : "");
+
+/** "Hard" or "Preference", from the catalog. */
+function ruleTag(type) {
+  const info = ruleInfo(type);
+  if (!info) return null;
+  return el("span", "tag tag--" + info.kind, L(catalog().kinds[info.kind]));
+}
+
+function renderBuiltin() {
+  const list = $("#builtin-list");
+  if (!list) return;
+  list.replaceChildren(...catalog().builtin.map((b) => {
+    const li = el("li", null, L(b));
+    li.dir = "auto";
+    return li;
+  }));
+  $("#builtin-goals").textContent = L(catalog().goals);
+}
+
 /* ---------- 0 · data ---------- */
 const seconds = (v) => (state.lang === "ar" ? `${v.toFixed(1)} ث` : `${v.toFixed(1)} s`);
 
@@ -1342,6 +1434,7 @@ function showBuildTime(elapsed) {
 }
 
 function renderRules() {
+  renderBuiltin();
   const host = $("#rules");
   const d = state.meta.data;
   host.replaceChildren();
@@ -1365,6 +1458,8 @@ function renderRules() {
     const text = el("span", "rule__text", (state.lang === "ar" ? d2.title_ar : d2.title_en) + " — " +
       d2.rows.map((x) => (state.lang === "ar" && x.value_ar ? x.value_ar : x.value)).join(" · "));
     text.dir = "auto";
+    const tag = ruleTag(r.constraint.type);
+    if (tag) li.appendChild(tag);
     li.appendChild(text);
     const rm = el("button", "btn btn--sm btn--ghost", state.lang === "ar" ? "حذف" : "Remove");
     rm.type = "button";

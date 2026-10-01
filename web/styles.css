@@ -1024,6 +1024,50 @@ td.num, th.num { text-align: end; font-family: var(--font-mono); font-variant-nu
   .step__pointer { display: none; }
 }
 
+/* --- rules made visible: tags, checks, built-in list, the menu ---------- */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  font: 600 0.66rem/1 var(--font-body);
+  border-radius: 999px;
+  padding: 3px var(--space-2xs);
+  border: 1px solid;
+  white-space: nowrap;
+}
+.tag--hard { color: var(--color-accent-text); border-color: var(--color-accent); background: var(--color-accent-soft); }
+.tag--preference { color: var(--color-warn); border-color: var(--color-warn-line); background: var(--color-warn-soft); }
+.rule { justify-content: flex-start; }
+.rule .rule__text { flex: 1; }
+
+.card__tags { display: flex; align-items: center; gap: var(--space-3xs); flex-wrap: wrap; }
+
+.checks { list-style: none; margin: 0; padding: 0 var(--space-sm) var(--space-xs); display: flex; flex-direction: column; gap: 2px; font-size: 0.78rem; }
+.check--ok { color: var(--color-good); }
+.check--wait { color: var(--color-ink-3); }
+
+.builtin {
+  border: 1px solid var(--color-rule);
+  border-radius: var(--r-sm);
+  background: var(--color-paper);
+  padding: var(--space-2xs) var(--space-xs);
+}
+.builtin summary { cursor: pointer; font-weight: 600; color: var(--color-ink-2); font-size: 0.85rem; }
+.builtin__list { margin: var(--space-2xs) 0 0; padding-inline-start: var(--space-md); display: flex; flex-direction: column; gap: 2px; font-size: 0.8rem; color: var(--color-ink-2); }
+.builtin__goals { margin: var(--space-2xs) 0 0; font-size: 0.78rem; color: var(--color-ink-3); }
+.rules__title { margin: 0; font: 600 0.85rem/1.2 var(--font-body); color: var(--color-ink-2); }
+
+.suggest.menu { flex-direction: column; align-items: stretch; gap: var(--space-3xs); }
+.menu__title { font-family: var(--font-mono); font-size: 0.64rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-ink-3); }
+.menu__group { display: flex; align-items: center; gap: var(--space-3xs); flex-wrap: wrap; }
+.menu__label { font-size: 0.72rem; font-weight: 600; color: var(--color-ink-2); min-width: 4.5em; }
+.suggest .menu__chip {
+  height: 26px;
+  border-radius: 999px;
+  padding: 0 var(--space-2xs);
+  font-size: 0.72rem;
+}
+
 /* --- agent ------------------------------------------------------------ */
 .agent {
   display: grid;
