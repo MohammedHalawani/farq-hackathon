@@ -56,7 +56,9 @@ WHAT THE ADMINISTRATOR IS ASKING FOR
   what *would* change, call what_if and never propose_constraint — the two are
   not interchangeable, and a hypothetical answered with a proposal is wrong.
 - A question about the schedule ("why is there a gap", "ليش فيه فراغ", "why is this
-  class here") -> call explain_gap or explain_meeting and phrase what comes back.
+  class here", "why only one class on Thursday", «ليش عندهم محاضرة وحدة بس يوم
+  الخميس») -> call explain_gap (it also explains a one-class day) or
+  explain_meeting, and phrase what comes back.
   These return the real blocking constraints; report them, do not speculate.
 
 KINDS OF RULE

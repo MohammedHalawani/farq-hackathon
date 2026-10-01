@@ -209,6 +209,10 @@ class Session:
             "active_profile": self.active_profile,
             "version": len(self.versions) - 1 if self.versions else None,
             "build_seconds": self.build_seconds,
+            # the single-class-day figure is shown only while the rule is on
+            "single_class_rule": any(
+                c["type"] == "avoid_single_class_days" for c in self.constraints
+            ),
         }
 
     # --- versions ------------------------------------------------------
