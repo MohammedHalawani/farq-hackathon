@@ -12,7 +12,7 @@ GROUPS = {
     "times": ("Times", "الأوقات"),
     "rooms": ("Rooms", "القاعات"),
     "students": ("Students", "الطلاب"),
-    "ask": ("Ask", "اسأل"),
+    "ask": ("Ask", "أسئلة"),
 }
 
 KINDS = {

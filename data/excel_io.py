@@ -422,7 +422,7 @@ def _build(rows: dict, report: Report) -> University | None:
             inst.unavailable_slots = parse_unavailable(row.get("unavailable"))
         except ValueError as e:
             report.error("Instructors", r, f"{name}: {e} (write e.g. 'Tue 14-16; Sun all')",
-                         f"{name}: تعذّرت قراءة الأوقات (اكتبي مثلًا: Tue 14-16; Sun all)")
+                         f"{name}: تعذّرت قراءة الأوقات (مثال للكتابة: Tue 14-16; Sun all)")
 
     # --- courses
     courses: list[Course] = []
@@ -737,13 +737,13 @@ HEAD_FILL = PatternFill("solid", fgColor="1F4E5A")
 GUIDE = [
     ("جدول — قالب بيانات الجدول الدراسي", "Jadwal — timetable data template"),
     ("", ""),
-    ("املئي الأوراق كما تحضّرينها اليوم. أسماء الأعمدة بالعربي أو بالإنجليزي.",
+    ("تُملأ الأوراق كما تُحضَّر اليوم. أسماء الأعمدة بالعربي أو بالإنجليزي.",
      "Fill the sheets as you prepare them today. Headers may be Arabic or English."),
     ("المقررات: رمز المقرر، الاسم، القسم، المستوى، يحتاج معمل (نعم/لا).",
      "Courses: code, name, department, level, needs_lab (yes/no)."),
     ("الشعب: رقم الشعبة، رمز المقرر، المدرس، عدد الطلاب (افتراضيًا 20)، الدفعات (اختياري).",
      "Sections: id, course code, instructor, enrollment (default 20), cohorts (optional)."),
-    ("مجموعات الطلاب اختيارية: إن حذفتِها نكوّنها من الخطة وعدد الشعب.",
+    ("مجموعات الطلاب اختيارية: إن حُذفت تُكوَّن من الخطة وعدد الشعب.",
      "StudentGroups is optional: without it, groups are built from the plan and section counts."),
     ("القاعات: رمز القاعة، المبنى، السعة، مهيأة (نعم/لا)، النوع (lecture/lab).",
      "Rooms: id, building, capacity, accessible (yes/no), kind (lecture/lab)."),
