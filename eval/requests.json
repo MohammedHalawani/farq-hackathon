@@ -69,5 +69,6 @@
 {"id":68,"lang":"en","category":"single_class_day","text":"Try to avoid one-class days for CE-L2","expect":{"kind":"constraint","constraint":{"type":"avoid_single_class_days","cohort":"CE-L2"}}},
 {"id":69,"lang":"ar","category":"single_class_day","text":"وش يصير لو قللنا الأيام اللي فيها محاضرة وحدة؟","expect":{"kind":"tool","tool":"what_if","constraint":{"type":"avoid_single_class_days"}}},
 {"id":70,"lang":"ar","category":"single_class_day","text":"ليش دفعة CS-L3 عندها محاضرة وحدة بس يوم الخميس؟","expect":{"kind":"tool","tool":"explain_gap","args":{"entity_id":"CS-L3","day":4}}},
-{"id":71,"lang":"ar","category":"single_class_day","text":"يا ليت ما يكون فيه يوم للطالب فيه مادة وحدة بس","expect":{"kind":"constraint","constraint":{"type":"avoid_single_class_days"}}}
+{"id":71,"lang":"ar","category":"single_class_day","text":"يا ليت ما يكون فيه يوم للطالب فيه مادة وحدة بس","expect":{"kind":"constraint","constraint":{"type":"avoid_single_class_days"}}},
+{"id":72,"lang":"ar","category":"demo","text":"لا تخلّون الطالب يجي ليوم فيه محاضرة وحدة (بعد الاستراحة، قبل البناء)","steps":[{"text":"لا محاضرات من ١٢ إلى ١","expect":{"kind":"constraint","constraint":{"type":"campus_break","slots":[4]}},"then":"apply"},{"text":"لا تخلّون الطالب يجي ليوم فيه محاضرة وحدة","expect":{"kind":"constraint","constraint":{"type":"avoid_single_class_days"}},"then":"apply"}]}
 ]
