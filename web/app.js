@@ -162,6 +162,7 @@ function showTab(name) {
   document.querySelectorAll(".tab").forEach((x) => x.setAttribute("aria-selected", String(x.dataset.panel === name)));
   document.querySelectorAll(".panel").forEach((p) => p.classList.toggle("is-active", p.id === "panel-" + name));
   if (name === "changes") loadChanges();
+  if (name === "data") fitAssistant();
 }
 document.querySelectorAll(".tab").forEach((b) => {
   b.addEventListener("click", () => showTab(b.dataset.panel));
@@ -1311,6 +1312,7 @@ function renderData() {
   $("#export-data").hidden = !built;
   setPlaceholders();
   renderSuggest();
+  queueFit();
   // redrawn on every render so the unit follows the language
   if (built && (state.buildSeconds ?? d.build_seconds) != null) {
     showBuildTime(state.buildSeconds ?? d.build_seconds);
@@ -1451,6 +1453,44 @@ for (const id of ["#export", "#export-data"]) {
   $(id).addEventListener("click", () => { window.location.href = "/api/data/export"; });
 }
 
+/* ---------- the assistant's place on the Data tab ---------- */
+const PHONE = window.matchMedia("(max-width: 799px)");
+
+/** Beside the steps from 800px up; inside step 2, under its text, on a phone. */
+function placeAssistant() {
+  const panel = $("#data-assistant");
+  const home = $(".data-layout");
+  const inStep = $("#step-rules .step__lede");
+  if (PHONE.matches) {
+    if (panel.parentElement !== inStep.parentElement) inStep.after(panel);
+  } else if (panel.parentElement !== home) {
+    home.appendChild(panel);
+  }
+  fitAssistant();
+}
+
+/** Size the panel to the space below where it sits, so the send box is
+ *  always on screen: a little shorter at the top of the page, the full
+ *  window once it sticks under the header. */
+function fitAssistant() {
+  const panel = $("#data-assistant");
+  if (PHONE.matches) { panel.style.height = ""; return; }
+  if (!panel.offsetParent) return;                       // Data tab not showing
+  const stuck = parseFloat(getComputedStyle(panel).top) || 0;
+  const top = Math.max(panel.getBoundingClientRect().top, stuck);
+  panel.style.height = Math.max(320, window.innerHeight - top - 16) + "px";
+}
+
+let fitQueued = false;
+const queueFit = () => {
+  if (fitQueued) return;
+  fitQueued = true;
+  requestAnimationFrame(() => { fitQueued = false; fitAssistant(); });
+};
+window.addEventListener("scroll", queueFit, { passive: true });
+window.addEventListener("resize", placeAssistant);
+PHONE.addEventListener("change", placeAssistant);
+
 /* ---------- boot ---------- */
 (async function boot() {
   state.meta = await api("/api/meta");
@@ -1464,6 +1504,7 @@ for (const id of ["#export", "#export-data"]) {
   // the timetable opens on Noura, who the baseline fails
   pickOpening();
   applyLang();
+  placeAssistant();
   renderPersonas();
   renderEntitySelect();
   await loadGrid();

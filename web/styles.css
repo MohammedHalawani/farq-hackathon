@@ -959,7 +959,8 @@ td.num, th.num { text-align: end; font-family: var(--font-mono); font-variant-nu
 /* --- data tab: steps beside the assistant ------------------------------ */
 .data-layout {
   display: grid;
-  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);   /* ~60 / 40 */
+  /* steps ~58%, assistant ~42% and never under 340px, at every width from 800px */
+  grid-template-columns: minmax(0, 58fr) minmax(340px, 42fr);
   gap: var(--space-lg);
   align-items: start;
 }
@@ -970,10 +971,10 @@ td.num, th.num { text-align: end; font-family: var(--font-mono); font-variant-nu
 .assistant {
   position: sticky;
   top: calc(var(--bar-h) + var(--space-md));
-  /* the header above, the page's bottom padding below: the whole panel,
-     send box included, stays on screen from the top of the page to the end */
-  height: calc(100vh - var(--bar-h) - var(--space-md) - var(--space-3xl));
-  min-height: 420px;
+  /* fitAssistant() sets the height from where the panel sits, so the send
+     box is always on screen; this is the fallback before it runs */
+  height: calc(100vh - var(--bar-h) - 2 * var(--space-md));
+  min-height: 320px;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -1005,9 +1006,21 @@ td.num, th.num { text-align: end; font-family: var(--font-mono); font-variant-nu
   color: var(--color-accent-text);
 }
 
-@media (max-width: 1100px) {
+/* narrower laptops and projectors: tighten the steps, keep the panel beside them */
+@media (max-width: 1199px) {
+  .data-layout { gap: var(--space-sm); }
+  .step { padding: var(--space-sm); gap: var(--space-sm); }
+  .step__body h3 { font-size: 1rem; }
+  .step__lede, .step__note { font-size: 0.8rem; }
+  .drop { min-height: 72px; padding: var(--space-sm); }
+  .summary__item dd { font-size: 1.05rem; }
+}
+
+/* phones: the panel lives inside step 2, right under its text */
+@media (max-width: 799px) {
   .data-layout { grid-template-columns: minmax(0, 1fr); }
-  .assistant { position: static; height: min(80vh, 640px); }
+  .step .assistant { position: static; height: min(70vh, 520px); margin-top: var(--space-2xs); }
+  .step__pointer { display: none; }
 }
 
 /* --- agent ------------------------------------------------------------ */
