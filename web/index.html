@@ -36,6 +36,7 @@
         <p data-i18n="p_data">Today this is built by hand, one level at a time, over one to one and a half weeks. Bring in the file you already prepare, state your rules, and let the solver build every level at once.</p>
       </div>
     </div>
+    <div class="data-layout">
     <ol class="steps">
       <li class="card step" id="step-data">
         <div class="step__num" aria-hidden="true">1</div>
@@ -60,9 +61,7 @@
           <h3 data-i18n="s2_title">Add your rules</h3>
           <p class="step__lede" data-i18n="s2_p">State rules to the assistant in Arabic or English. Each one is checked, shown to you, and applied only when you confirm.</p>
           <div id="rules"></div>
-          <div class="step__actions">
-            <button class="btn btn--sm" id="go-agent" type="button" data-i18n="s2_go">Open the assistant</button>
-          </div>
+          <p class="step__pointer" data-i18n="s2_pointer">Write your rules in the assistant →</p>
         </div>
       </li>
       <li class="card step" id="step-build">
@@ -78,9 +77,31 @@
             </div>
           </div>
           <div id="build-progress"></div>
+          <div class="step__actions">
+            <button class="btn btn--sm" id="open-timetable" type="button" data-i18n="open_timetable" hidden>Open the timetable</button>
+          </div>
         </div>
       </li>
     </ol>
+
+    <!-- the assistant, beside the steps: the same conversation as the Agent tab -->
+    <aside class="card assistant" id="data-assistant" aria-labelledby="assistant-title">
+      <div class="card__head">
+        <h3 id="assistant-title" data-i18n="assistant_title">Assistant</h3>
+        <span class="chip" data-i18n="eyebrow_agent">Arabic or English</span>
+      </div>
+      <div class="assistant__body" id="dchat-body">
+        <div class="chat__log chat__log--flow" id="dchat-log" aria-live="polite"></div>
+        <div id="dtracker" hidden></div>
+        <div class="assistant__side" id="dside"></div>
+      </div>
+      <div class="suggest" id="dsuggest"></div>
+      <form class="chat__form" id="dchat-form">
+        <input type="text" id="dchat-input" autocomplete="off" dir="auto" aria-labelledby="assistant-title" />
+        <button class="btn btn--primary" type="submit" data-i18n="send">Send</button>
+      </form>
+    </aside>
+    </div>
   </section>
 
   <!-- 1 · Compare -->

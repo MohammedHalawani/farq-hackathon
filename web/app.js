@@ -36,7 +36,10 @@ const I18N = {
     s1_template: "Download the template", s1_demo: "Use the demo campus",
     s2_title: "Add your rules",
     s2_p: "State rules to the assistant in Arabic or English. Each one is checked, shown to you, and applied only when you confirm.",
-    s2_go: "Open the assistant",
+    s2_pointer: "Write your rules in the assistant →",
+    assistant_title: "Assistant", open_timetable: "Open the timetable",
+    ph_setup: "Type a rule, e.g. no lectures from 12 to 1",
+    ph_built: "Ask about the timetable or request a change",
     s2_empty: "Tell the assistant your rules, for example: no lectures from 12 to 1.",
     s2_built: "The timetable is built. From here, every change goes through the assistant and appears in the change log.",
     s3_title: "Build the timetable",
@@ -73,7 +76,10 @@ const I18N = {
     s1_template: "تنزيل القالب", s1_demo: "استخدمي الحرم التجريبي",
     s2_title: "أضيفي القواعد",
     s2_p: "اذكري قواعدك للمساعد بالعربي أو بالإنجليزي. كل قاعدة تُفحص وتُعرض عليك، ولا تُطبَّق إلا بعد تأكيدك.",
-    s2_go: "افتحي المساعد",
+    s2_pointer: "← اكتب القواعد في المساعد",
+    assistant_title: "المساعد", open_timetable: "افتحي الجدول",
+    ph_setup: "اكتب قاعدة، مثل: لا محاضرات من ١٢ إلى ١",
+    ph_built: "اسأل عن الجدول أو اطلب تعديلًا",
     s2_empty: "أخبري المساعد بقواعدك، مثل: لا محاضرات من ١٢ إلى ١",
     s2_built: "تم بناء الجدول. أي تغيير بعد الآن يمر عبر المساعد ويظهر في سجل التغييرات.",
     s3_title: "ابني الجدول",
@@ -128,6 +134,7 @@ const state = {
   entType: "student", entId: null, source: "baseline", pending: null, busy: false,
   lastApplied: null, movedMeetings: new Set(), trace: [], moves: [], overlay: null,
   upload: null,   // the last upload's report, kept even when it was rejected
+  chat: [],       // the one conversation, shown in every chat view
 };
 
 const t = (k) => I18N[state.lang][k] || k;
@@ -143,8 +150,9 @@ function applyLang() {
   document.documentElement.dir = state.lang === "ar" ? "rtl" : "ltr";
   $("#lang-toggle").textContent = state.lang === "ar" ? "English" : "العربية";
   document.querySelectorAll("[data-i18n]").forEach((n) => { n.textContent = t(n.dataset.i18n); });
-  $("#chat-input").placeholder = t("placeholder");
+  setPlaceholders();
   renderComparison(); renderPersonas(); renderEntitySelect(); renderGrid(); renderSide(); renderChanges(); renderSuggest();
+  renderChat();
   renderTrace(state.trace, { animate: false });
   renderData();
 }
@@ -366,7 +374,7 @@ async function runSolver() {
       state.source = "current";
       $("#ent-source").value = "current";
     }
-    showTab("timetable");
+    // stay where the build was started: the Data tab's assistant is next to it
     await loadGrid();
   } catch (e) {
     stop.done = true;
@@ -649,57 +657,110 @@ const SUGGEST = {
   ],
 };
 
-function renderSuggest() {
-  const host = $("#suggest");
-  if (!host) return;
-  host.replaceChildren();
-  const built = state.comparison || state.meta?.data?.built;
-  for (const text of (built ? SUGGEST : SUGGEST_SETUP)[state.lang]) {
-    const b = el("button", null, text);
-    b.type = "button";
-    b.dir = "auto";
-    b.title = text;
-    b.addEventListener("click", () => sendMessage(text));
-    host.appendChild(b);
+/* One conversation, two places to see it: the Agent tab and the assistant
+ * panel beside the Data tab's steps. Every renderer below draws into each view
+ * from the same state, so the two never disagree. */
+const CHAT_VIEWS = [
+  { key: "agent", log: "#chat-log", scroller: "#chat-log", form: "#chat-form", input: "#chat-input",
+    suggest: "#suggest", tracker: "#tracker", side: "#side", compact: false },
+  { key: "data", log: "#dchat-log", scroller: "#dchat-body", form: "#dchat-form", input: "#dchat-input",
+    suggest: "#dsuggest", tracker: "#dtracker", side: "#dside", compact: true },
+].map((v) => {
+  const view = { key: v.key, compact: v.compact, nodes: new Map() };
+  for (const k of ["log", "scroller", "form", "input", "suggest", "tracker", "side"]) view[k] = $(v[k]);
+  return view;
+});
+
+const isBuilt = () => !!(state.comparison || state.meta?.data?.built);
+
+function setPlaceholders() {
+  for (const v of CHAT_VIEWS) {
+    v.input.placeholder = v.compact ? t(isBuilt() ? "ph_built" : "ph_setup") : t("placeholder");
   }
 }
 
-function addMessage(role, text) {
-  const log = $("#chat-log");
-  const wrap = el("div", "msg msg--" + role);
-  wrap.appendChild(el("div", "msg__who", role === "admin"
+function scrollChat() {
+  for (const v of CHAT_VIEWS) v.scroller.scrollTop = v.scroller.scrollHeight;
+}
+
+function renderSuggest() {
+  for (const v of CHAT_VIEWS) {
+    v.suggest.replaceChildren();
+    for (const text of (isBuilt() ? SUGGEST : SUGGEST_SETUP)[state.lang]) {
+      const b = el("button", null, text);
+      b.type = "button";
+      b.dir = "auto";
+      b.title = text;
+      b.addEventListener("click", () => sendMessage(text));
+      v.suggest.appendChild(b);
+    }
+  }
+}
+
+let nextMessageId = 0;
+
+function messageNode(m) {
+  const wrap = el("div", "msg msg--" + m.role);
+  wrap.appendChild(el("div", "msg__who", m.role === "admin"
     ? (state.lang === "ar" ? "أنت" : "Admin")
     : (state.lang === "ar" ? "المساعد" : "Assistant")));
-  const body = el("div", "msg__body", text);
+  const body = el("div", "msg__body", m.text);
   body.dir = "auto";
   wrap.appendChild(body);
-  log.appendChild(wrap);
-  log.scrollTop = log.scrollHeight;
+  if (m.choices?.length && !m.choicesUsed) wrap.appendChild(choiceButtons(m));
   return wrap;
 }
 
-$("#chat-form").addEventListener("submit", (e) => {
-  e.preventDefault();
-  const v = $("#chat-input").value.trim();
-  if (v) sendMessage(v);
-});
+/** Draw (or redraw) one message in every view. */
+function renderMessage(m) {
+  for (const v of CHAT_VIEWS) {
+    const node = messageNode(m);
+    const old = v.nodes.get(m.id);
+    if (old) old.replaceWith(node);
+    else v.log.appendChild(node);
+    v.nodes.set(m.id, node);
+  }
+  scrollChat();
+}
+
+function renderChat() {
+  for (const v of CHAT_VIEWS) {
+    v.log.replaceChildren();
+    v.nodes.clear();
+  }
+  state.chat.forEach(renderMessage);
+}
+
+function addMessage(role, text) {
+  const m = { id: nextMessageId++, role, text };
+  state.chat.push(m);
+  renderMessage(m);
+  return m;
+}
+
+for (const v of CHAT_VIEWS) {
+  v.form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const text = v.input.value.trim();
+    if (text) sendMessage(text);
+  });
+}
 
 async function sendMessage(text) {
   if (state.busy) return;
   state.busy = true;
-  $("#chat-input").value = "";
+  for (const v of CHAT_VIEWS) v.input.value = "";
   addMessage("admin", text);
-  const pending = addMessage("agent", state.lang === "ar" ? "…" : "…");
+  const pending = addMessage("agent", "…");
   try {
     const out = await api("/api/agent/message", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ message: text }),
     });
-    pending.querySelector(".msg__body").textContent = out.reply;
-    if (out.choices?.length) pending.appendChild(choiceButtons(out.choices));
-    // the reply and its buttons arrive after the placeholder: keep them in view
-    $("#chat-log").scrollTop = $("#chat-log").scrollHeight;
+    pending.text = out.reply;
+    pending.choices = out.choices || null;
+    renderMessage(pending);
     state.pending = out.card || null;
     if (out.card && out.card.kind === "what_if" && out.card.moves) {
       state.moves = out.card.moves;
@@ -719,8 +780,11 @@ async function sendMessage(text) {
       await loadGrid();
     }
     renderSide();
+    // the reply, its buttons and the card arrive after the placeholder
+    scrollChat();
   } catch (e) {
-    pending.querySelector(".msg__body").textContent = e.message;
+    pending.text = e.message;
+    renderMessage(pending);
   } finally {
     state.busy = false;
   }
@@ -728,9 +792,9 @@ async function sendMessage(text) {
 
 /** The candidates of an ambiguous lookup, named exactly as the database
  *  stores them. The model may phrase the question; it never writes these. */
-function choiceButtons(choices) {
+function choiceButtons(m) {
   const box = el("div", "choices");
-  for (const c of choices) {
+  for (const c of m.choices) {
     const b = el("button", "choice");
     b.type = "button";
     const main = el("span", "choice__name", c.name);
@@ -743,7 +807,8 @@ function choiceButtons(choices) {
     }
     b.addEventListener("click", () => {
       if (state.busy) return;
-      box.remove();
+      m.choicesUsed = true;   // gone from every view, not just this one
+      renderMessage(m);
       sendMessage(c.reply);
     });
     box.appendChild(b);
@@ -798,9 +863,11 @@ const BLOCK_ICON = {
 };
 
 /** Reveal the tracker one step at a time so a viewer can follow it. */
-function renderTrace(trace, { animate = true } = {}) {
-  const host = $("#tracker");
-  if (!host) return;
+function renderTrace(trace, opts = {}) {
+  for (const v of CHAT_VIEWS) renderTraceInto(v.tracker, trace, opts);
+}
+
+function renderTraceInto(host, trace, { animate = true } = {}) {
   host.replaceChildren();
   if (!trace || !trace.length) {
     host.hidden = true;
@@ -838,16 +905,21 @@ function renderTrace(trace, { animate = true } = {}) {
 }
 
 function renderSide() {
-  const host = $("#side");
-  if (!host) return;
+  for (const v of CHAT_VIEWS) renderSideInto(v.side, v.compact);
+}
+
+function renderSideInto(host, compact) {
   host.replaceChildren();
   const c = state.pending;
   if (!c) {
-    const card = el("div", "card");
-    card.appendChild(el("div", "empty", state.lang === "ar"
-      ? "لا يوجد تغيير بانتظار التأكيد."
-      : "No change is waiting for confirmation."));
-    host.appendChild(card);
+    // the narrow panel has no room for an empty placeholder card
+    if (!compact) {
+      const card = el("div", "card");
+      card.appendChild(el("div", "empty", state.lang === "ar"
+        ? "لا يوجد تغيير بانتظار التأكيد."
+        : "No change is waiting for confirmation."));
+      host.appendChild(card);
+    }
     if (state.overlay) host.appendChild(gapCard(state.overlay));
     if (state.lastApplied) host.appendChild(appliedCard(state.lastApplied));
     if ((state.moves || []).length) host.appendChild(movesCard(state.moves));
@@ -1000,6 +1072,7 @@ async function applyPending(btn) {
       await refreshAfterChange(out.version.moved);
     }
     renderSide();
+    scrollChat();
   } catch (e) {
     addMessage("agent", e.message);
   } finally {
@@ -1019,6 +1092,7 @@ async function doUndo(btn) {
     addMessage("agent", state.lang === "ar" ? "تم التراجع." : "Change undone.");
     await refreshAfterChange(out.version.moved);
     renderSide();
+    scrollChat();
   } finally {
     state.busy = false;
     if (btn) btn.disabled = false;
@@ -1208,6 +1282,9 @@ function renderData() {
   $("#step-data").classList.toggle("step--done", !d.is_demo && !(state.upload?.errors.length));
   $("#step-build").classList.toggle("step--done", built);
   $("#export").disabled = !built;
+  $("#open-timetable").hidden = !built;
+  setPlaceholders();
+  renderSuggest();
   if (built && state.buildSeconds == null && d.build_seconds != null) {
     showBuildTime(d.build_seconds);
   }
@@ -1298,7 +1375,8 @@ async function resetClient() {
     trace: [], moves: [], overlay: null, source: "baseline", buildSeconds: null, upload: null,
   });
   $("#ent-source").value = "baseline";
-  $("#chat-log").replaceChildren();
+  state.chat = [];
+  renderChat();
   $("#build-time").textContent = "—";
   $("#build-progress").replaceChildren();
   state.meta = await api("/api/meta");
@@ -1341,13 +1419,19 @@ $("#use-demo").addEventListener("click", async () => {
   await api("/api/data/reset", { method: "POST" });
   await resetClient();
 });
-$("#go-agent").addEventListener("click", () => { showTab("agent"); $("#chat-input").focus(); });
+$("#open-timetable").addEventListener("click", () => showTab("timetable"));
 $("#export").addEventListener("click", () => { window.location.href = "/api/data/export"; });
 
 /* ---------- boot ---------- */
 (async function boot() {
   state.meta = await api("/api/meta");
   state.entities = await api("/api/entities");
+  // the conversation so far lives on the server: show it in every chat view
+  try {
+    const agent = await api("/api/agent/state");
+    state.chat = (agent.chat || []).map((m) => ({ id: nextMessageId++, role: m.role, text: m.text }));
+    state.pending = agent.card || null;
+  } catch { /* an empty chat is a fine start */ }
   // the timetable opens on Noura, who the baseline fails
   pickOpening();
   applyLang();
