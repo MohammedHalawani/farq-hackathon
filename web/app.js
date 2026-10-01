@@ -181,6 +181,7 @@ const ROWS = [
   ["avg_idle_minutes_per_student_per_day", "Avg idle minutes / student / day", "متوسط دقائق الفراغ لكل طالب يوميًا", "lower"],
   ["pct_students_with_2h_gap", "% students with a 2h+ gap", "نسبة الطلاب بفراغ ساعتين فأكثر", "lower"],
   ["pct_students_with_any_gap", "% students with any gap", "نسبة الطلاب بأي فراغ", "lower"],
+  ["pct_students_with_single_class_day", "% students with a single-class day", "نسبة الطلاب بيوم فيه محاضرة واحدة", "lower"],
   ["worst_gap_hours", "Worst single gap (hours)", "أطول فراغ متصل (ساعات)", "lower"],
   ["avg_walk_minutes", "Avg walking minutes", "متوسط دقائق المشي", "lower"],
   ["avg_room_fill_rate", "Avg room fill rate", "متوسط إشغال القاعات", "higher"],

@@ -24,6 +24,7 @@ def build(
     weights: dict[str, int] | None = None,
     keep: Assignment | None = None,
     breaks: frozenset[int] = frozenset(),
+    single_scope: set[str] | None = None,
 ) -> Assignment | None:
     """With `keep`, every placement in it that is still legal is held fixed and
     only the broken ones are re-placed — a repair, not a rebuild."""
@@ -106,6 +107,14 @@ def build(
                     ok = True
                     for st in students:
                         day_map = student_day.get((st, d))
+                        if single_scope and st in single_scope:
+                            # avoid_single_class_days: a first class that day
+                            # makes a lone-class day, a second one ends it
+                            n_today = len(day_map or {})
+                            if n_today == 0:
+                                cost += w["single_day"]
+                            elif n_today == 1:
+                                cost -= w["single_day"]
                         if not day_map:
                             continue
                         for q in (p - 1, p + 1):

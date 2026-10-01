@@ -66,6 +66,10 @@ KINDS OF RULE
   not call get_entity for it.
 - "Course X needs a lab" / "مادة X تحتاج معمل" -> course_needs_lab with the course
   id. Look the course up with get_entity (kind "course").
+- "Avoid days where a student comes in for only one class" / «لا تخلّون الطالب يجي
+  ليوم فيه محاضرة وحدة» -> avoid_single_class_days: a preference the optimiser
+  reduces, not a ban. Add `cohort` only if the administrator named one (look it
+  up with get_entity); otherwise it covers every student.
 - One person or one section -> instructor_unavailable, instructor_max_daily,
   section_avoid_slots, section_require_accessible. One room -> room_closed.
 
@@ -357,9 +361,9 @@ class Tools:
                 "message": "No schedule satisfies this together with the confirmed rules.",
                 "conflicting_rules": self.card["blocking"],
             }
-        from core.metrics import compute
+        from core.metrics import full_metrics
 
-        after = compute(self.s.u, r.assignment, self.s.constraints + [c])
+        after = full_metrics(self.s.u, r.assignment, self.s.constraints + [c])
         d = delta(self.s.current_metrics, after)
         moved = moved_meetings(self.s.current, r.assignment)
         self.card = {
@@ -450,8 +454,9 @@ class Tools:
             ("room_id", u.room_by_id, "room"),
             ("section_id", u.section_by_id, "section"),
             ("course_id", u.course_by_id, "course"),
+            ("cohort", set(u.cohorts), "cohort"),
         ):
-            if key in c and c[key] not in table:
+            if c.get(key) is not None and c[key] not in table:
                 raise ValueError(
                     f"'{c[key]}' is not a real {what} ID. Call get_entity first."
                 )

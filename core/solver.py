@@ -26,6 +26,7 @@ PROFILES = {
         "walk": 15,
         "waste": 1,
         "peak": 5,
+        "single_day": 40,
     },
     "room_efficient": {
         "conflict": 1000,
@@ -34,6 +35,7 @@ PROFILES = {
         "walk": 3,
         "waste": 10,
         "peak": 5,
+        "single_day": 40,
     },
     "balanced": {
         "conflict": 1000,
@@ -42,6 +44,9 @@ PROFILES = {
         "walk": 8,
         "waste": 4,
         "peak": 8,
+        # only used under avoid_single_class_days: a lone class costs about
+        # two idle hours (balanced)
+        "single_day": 40,
     },
 }
 
@@ -88,6 +93,18 @@ def student_groups(u: University) -> list[_Group]:
         g.repeater = g.repeater or st.is_repeater
         g.needs_accessibility = g.needs_accessibility or st.needs_accessibility
     return [buckets[k] for k in sorted(buckets, key=lambda s: sorted(s))]
+
+
+def single_day_scope(u: University, constraints: list[dict]) -> set[str] | None:
+    """Students covered by avoid_single_class_days, or None when the rule is
+    absent (and the model must not change at all)."""
+    rules = [c for c in constraints if c["type"] == "avoid_single_class_days"]
+    if not rules:
+        return None
+    if any(not c.get("cohort") for c in rules):
+        return {st.id for st in u.students}
+    cohorts = {c["cohort"] for c in rules}
+    return {st.id for st in u.students if f"{st.department}-L{st.level}" in cohorts}
 
 
 def _allowed_slots(u: University, constraints: list[dict]) -> dict[str, set[int]]:
@@ -226,6 +243,14 @@ def _build_model(
             model.Add(day_var[ms[0].id] < day_var[ms[1].id])
 
     groups = student_groups(u)
+    # avoid_single_class_days: how many students of each group it covers
+    scope = single_day_scope(u, constraints)
+    single_size: dict[frozenset[str], int] = {}
+    if scope is not None:
+        for st in u.students:
+            if st.id in scope:
+                key = frozenset(st.section_ids)
+                single_size[key] = single_size.get(key, 0) + 1
     break_periods: dict[int, list[int]] = {}
     for s_ in sorted(break_slots(constraints)):
         break_periods.setdefault(slot_day(s_), []).append(slot_period(s_))
@@ -337,6 +362,14 @@ def _build_model(
             else:
                 model.Add(idle >= last - first + 1 - count)
             penalties.append((w["idle"] * g.size, idle))
+
+            # --- soft, only under avoid_single_class_days: a day with one class
+            n_single = single_size.get(g.section_ids, 0)
+            if n_single:
+                single = model.NewBoolVar(f"single_{id(g)}_{d}")
+                model.Add(count == 1).OnlyEnforceIf(single)
+                model.Add(count != 1).OnlyEnforceIf(single.Not())
+                penalties.append((w["single_day"] * n_single, single))
 
     # --- soft: room waste
     waste_terms = []
@@ -508,10 +541,12 @@ def solve(
         # repair the schedule we have before considering a rebuild
         starts.append(
             greedy_start(u, allowed_slots, allowed_rooms, built.max_daily, w, keep=base,
-                         breaks=break_slots(constraints))
+                         breaks=break_slots(constraints),
+                         single_scope=single_day_scope(u, constraints))
         )
     starts.append(greedy_start(u, allowed_slots, allowed_rooms, built.max_daily, w,
-                               breaks=break_slots(constraints)))
+                               breaks=break_slots(constraints),
+                               single_scope=single_day_scope(u, constraints)))
     cur: Assignment | None = None
     cur_obj: int | None = None
     for cand in starts:

@@ -323,10 +323,32 @@ def compute(u: University, a: Assignment, constraints: list[dict] | None = None)
     }
 
 
+def student_single_class_days(u: University, a: Assignment, student_id: str) -> int:
+    """Days on which this student comes in for exactly one class."""
+    return sum(
+        1 for ms in student_day_meetings(u, a, student_id).values()
+        if len({p for p, _, _ in ms}) == 1
+    )
+
+
+def full_metrics(u: University, a: Assignment, constraints: list[dict] | None = None) -> dict:
+    """compute(), plus the single-class-day figure. Kept apart from compute() so
+    every number compute() returns stays exactly what it was."""
+    m = compute(u, a, constraints)
+    n = len(u.students)
+    singles = [student_single_class_days(u, a, st.id) for st in u.students]
+    m["pct_students_with_single_class_day"] = round(
+        100 * sum(1 for v in singles if v) / max(n, 1), 1
+    )
+    m["single_class_days"] = sum(singles)
+    return m
+
+
 SUMMARY_KEYS = [
     ("avg_idle_minutes_per_student_per_day", "Avg idle minutes / student / day", "lower"),
     ("pct_students_with_2h_gap", "% students with a 2h+ gap", "lower"),
     ("pct_students_with_any_gap", "% students with any gap", "lower"),
+    ("pct_students_with_single_class_day", "% students with a single-class day", "lower"),
     ("worst_gap_hours", "Worst single gap (hours)", "lower"),
     ("pct_students_conflict_free", "% students conflict-free", "higher"),
     ("pct_repeaters_conflict_free", "% repeaters conflict-free", "higher"),

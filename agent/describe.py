@@ -92,6 +92,19 @@ def describe(u: University, c: dict) -> dict:
                 {"label_en": "Hours", "label_ar": "الساعات", "value": h_en, "value_ar": h_ar},
             ],
         }
+    if t == "avoid_single_class_days":
+        who_en = c.get("cohort") or "all students"
+        who_ar = c.get("cohort") or "كل الطلاب"
+        return {
+            "title_en": "Fewer days with only one class",
+            "title_ar": "تقليل الأيام التي فيها محاضرة واحدة فقط",
+            "rows": [
+                {"label_en": "Students", "label_ar": "الطلاب", "value": who_en, "value_ar": who_ar},
+                {"label_en": "Kind", "label_ar": "النوع",
+                 "value": "a preference: reduced as far as the timetable allows",
+                 "value_ar": "تفضيل: تُقلَّل قدر ما يسمح الجدول"},
+            ],
+        }
     if t == "course_needs_lab":
         course = u.course_by_id[c["course_id"]]
         n_sec = sum(1 for s in u.sections if s.course_id == course.id)

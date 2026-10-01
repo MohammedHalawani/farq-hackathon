@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from core.baseline import build_baseline
-from core.metrics import compute, delta, moved_meetings
+from core.metrics import delta, full_metrics, moved_meetings
 from core.models import DAYS, DAYS_AR, FIRST_HOUR, Assignment, University, slot_day, slot_period
 from core.solver import CHANGE_ROUNDS, DEFAULT_ROUNDS, PROFILES, solve
 from data.generator import generate
@@ -63,7 +63,7 @@ class Session:
         self.report = report
         self.source = source
         self.baseline: Assignment = baseline
-        self.baseline_metrics = compute(self.u, self.baseline)
+        self.baseline_metrics = full_metrics(self.u, self.baseline)
         self._campus_key = campus_key(u)
         self.profiles: dict[str, dict] = {}
         self.active_profile = "balanced"
@@ -97,7 +97,7 @@ class Session:
                     self.baseline = build_baseline(self.u, self.constraints)
                 except RuntimeError as e:
                     raise BuildError(f"The manual-style baseline cannot keep the break free: {e}")
-            self.baseline_metrics = compute(self.u, self.baseline, self.constraints)
+            self.baseline_metrics = full_metrics(self.u, self.baseline, self.constraints)
             self.progress = {
                 "stage": "solving",
                 "done": 0,
@@ -142,7 +142,7 @@ class Session:
                 raise BuildError(r.message or "No schedule satisfies these rules.")
             out = {
                 "assignment": r.assignment,
-                "metrics": compute(self.u, r.assignment, self.constraints),
+                "metrics": full_metrics(self.u, r.assignment, self.constraints),
                 "objective": r.objective,
                 "seconds": round(r.wall_time, 1),
             }
@@ -177,7 +177,7 @@ class Session:
         a = Assignment(raw["slot"], raw["room"])
         return {
             "assignment": a,
-            "metrics": compute(self.u, a, self.constraints),
+            "metrics": full_metrics(self.u, a, self.constraints),
             "objective": raw["objective"],
             "seconds": raw["seconds"],
         }
@@ -216,7 +216,7 @@ class Session:
         self, label: str, constraint: dict | None, assignment: Assignment
     ) -> Version:
         before = self.current
-        metrics = compute(self.u, assignment, self.constraints)
+        metrics = full_metrics(self.u, assignment, self.constraints)
         v = Version(
             index=len(self.versions),
             label=label,
