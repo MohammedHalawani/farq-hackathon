@@ -770,6 +770,25 @@ function addServerLine(line) {
   return m;
 }
 
+/** After a reply: in the Agent tab the log simply follows the newest message.
+ *  In the panel, cards and the step tracker sit below the conversation, so
+ *  scrolling to the bottom would show them instead: show the reply (and the
+ *  status line under it), or the card with Apply when there is one; if both do
+ *  not fit, the card wins. */
+function revealReply(reply, last) {
+  for (const v of CHAT_VIEWS) {
+    if (!v.compact) { v.scroller.scrollTop = v.scroller.scrollHeight; continue; }
+    const from = v.nodes.get(reply.id);
+    const to = (state.pending && v.side.firstElementChild) || v.nodes.get(last.id);
+    if (!from || !to) continue;
+    const box = v.scroller.getBoundingClientRect();
+    const top = from.getBoundingClientRect().top - box.top;
+    const bottom = to.getBoundingClientRect().bottom - box.top;
+    const room = v.scroller.clientHeight;
+    v.scroller.scrollTop += bottom - top <= room - 16 ? top - 8 : bottom - room + 8;
+  }
+}
+
 /** Scroll each view so this message is at the top of what is visible. */
 function scrollToMessage(m) {
   for (const v of CHAT_VIEWS) {
@@ -850,8 +869,8 @@ async function sendMessage(text) {
       await loadGrid();
     }
     renderSide();
-    // the reply, its buttons and the card arrive after the placeholder
-    scrollChat();
+    // keep the reply in view, and the card with its Apply button if there is one
+    revealReply(pending, out.status_line ? state.chat[state.chat.length - 1] : pending);
   } catch (e) {
     pending.text = e.message;
     renderMessage(pending);
