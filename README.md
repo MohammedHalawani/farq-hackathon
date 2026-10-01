@@ -181,37 +181,53 @@ only, and `prefers-reduced-motion` collapses all of it to a crossfade.
 
 ## Demo
 
-The pipeline, from a fresh clone (`rm -rf .cache`), about four minutes. The
-numbers below are from a run on 30/09/2026:
+Everything happens on the **Data** tab: the steps on one side, the assistant
+beside them. From a fresh clone (`rm -rf .cache`), about four minutes. The
+numbers below are what the screen showed on a run on 01/10/2026 at 1366×768,
+in Arabic.
 
-1. **Data** tab → **Download the template**, then drag it back onto the upload
-   box. The report shows 16 levels, 40 courses, 60 sections, 300 students,
-   **0 errors, 0 warnings**.
-2. **Agent**: `لا محاضرات من ١٢ إلى ١` → a *Campus break* card (every day,
-   12:00–13:00). Confirm. It is checked for feasibility (under a second) and
-   saved as a setup rule, listed under step 2 on the Data tab.
-3. **Build the timetable** (~40 s; 39.4 s on the reference run) next to
-   «يدويًا: أسبوع إلى أسبوع ونص». It jumps to the Timetable, where no class sits
-   at 12:00 (0 of 120 meetings; the downloaded Excel confirms it). The baseline
-   keeps the break free too, as a coordinator would, so the comparison is like
-   for like: students with a 2h+ gap go from **32.7% (baseline) to 0.7%
-   (balanced)**, and students with any gap from 82.0% to 21.3%.
-4. **Agent**: `ليش عند عمارة المستوى الثاني فراغ يوم الاثنين؟`. Before the break
-   rule this cohort had 11:00–14:00 empty. Now the only empty hour is the break,
-   and the answer says so: *«لا يوجد فراغ فعلي في جدول عمارة المستوى الثاني يوم
-   الاثنين؛ الفاصل الموجود في الساعة 12:00 هو استراحة الحرم الجامعي …، ولا يُحسب
-   كفراغ.»*
-5. **Agent**: `ليش عند حاسب المستوى الثالث فراغ يوم الأحد؟`. A real gap: CS-L3
-   has 10:00–11:00 empty on Sunday. The answer comes from `core/explain.py`,
-   which tries every neighbouring class in every gap hour: each move would clash
-   with 15–18 students' other classes, and 12:00 is the break, not a gap.
-6. **Agent**: `د. أحمد ما يقدر الثلاثاء بعد ٢`. Two instructors are named أحمد,
-   so it asks which, with a button for each: **د. أحمد العلي** and **د. أحمد
-   الغامدي**. The names on the buttons come from the database through the
-   resolver, never from the model's text. Click د. أحمد العلي, confirm the card,
-   and the timetable re-solves in ~7 s, **moving 6 meetings out of 120**.
-7. **Timetable** → **Download timetable (Excel)**.
-8. **Change log** → **Undo**. The change is gone and the setup rule stays.
+1. **Upload** `جدول-القسم.xlsx` (the template from **Download the template**,
+   saved under that name) onto step 1. The report shows 16 levels, 40 courses,
+   60 sections, 300 students, **0 errors, 0 warnings**.
+2. In the assistant: `لا محاضرات من ١٢ إلى ١` → a *Campus break* card (every
+   day, 12:00–13:00) → **Apply**. It is checked for feasibility and saved as a
+   setup rule; step 2 lists it at once.
+3. In the assistant: `لا تخلّون الطالب يجي ليوم فيه محاضرة وحدة` → a card worded
+   as a preference, «تقليل الأيام التي فيها محاضرة واحدة فقط · كل الطلاب» →
+   **Apply**. Step 2 now lists both rules.
+4. **Build the timetable**: **45.9 s** on screen, beside «يدويًا: أسبوع إلى أسبوع
+   ونص». No class sits at 12:00. Compare, baseline → balanced (the baseline keeps
+   the break free too, so it is like for like):
+   - students with a 2h+ gap: **32.7% → 0%**
+   - students with a day that has only one class: **49.3% → 18.3%**
+5. In the assistant: `ليش عند عمارة المستوى الثاني فراغ يوم الأربعاء؟`. The answer
+   is written by `core/explain.py`: AR-L2 has 13:00–14:00 empty on Wednesday;
+   12:00 is the break, not a gap; moving Design Studio I in is blocked (د. أحمد
+   الغامدي teaches Visual Communication then), and moving Digital Fabrication in
+   would clash with 6 students.
+6. Optional: `ليش الهندسة المدنية المستوى الثاني عندها محاضرة وحدة بس يوم الخميس؟`.
+   CE-L2 has only Surveying, at 13:00, on Thursday; moving it next to Monday's
+   or Tuesday's classes is blocked by د. أحمد العلي's availability and teaching.
+7. In the assistant: `د. أحمد ما يقدر الثلاثاء بعد ٢`. Two instructors are named
+   أحمد, so it asks which, with a button for each: **د. أحمد العلي** and **د. أحمد
+   الغامدي**, named from the database, never by the model. Click د. أحمد العلي →
+   **Apply**: «تم التطبيق. نُقلت 8 محاضرة» — **8 meetings moved out of 120**,
+   shown right under that line.
+8. **Download timetable (Excel)** from step 3.
+9. **Undo** from the assistant's last-change card: «تم التراجع». The change is
+   gone; the two setup rules stay.
+
+Both explanation questions (5 and 6) were picked because every move they try is
+blocked or would cause a clash. On other days the explanation can honestly say a
+move is «ممكن»: the optimiser improves the timetable one neighbourhood at a time
+and is not a proven optimum, and the explanation prices a move by clashes and
+idle time only, not by rooms, walking or teaching load.
+
+**Without the single-class-day rule** the optimiser leaves **91.3%** of students
+with a one-class day (98.0% with the break), against 36.7% in the hand-built
+baseline: a day with one class has no gap. The rule is opt-in; with it, 2h+ gaps
+stay at 0.0% (a 2h+ idle run costs half a student clash while it is on) and the
+build takes about 46 s instead of 35–38 s.
 
 **A campus break is not a gap.** Break hours are taken out of the day before
 idle time is measured, in the metrics, the solver's objective and the gap
