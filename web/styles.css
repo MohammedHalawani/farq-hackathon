@@ -989,8 +989,11 @@ td.num, th.num { text-align: end; font-family: var(--font-mono); font-variant-nu
   gap: var(--space-sm);
 }
 
-/* in the panel the body scrolls, so the log just flows */
-.chat__log--flow { flex: none; overflow: visible; padding: 0; }
+/* In the panel the body scrolls and everything in it just flows. These must
+   beat .chat__log (flex: 1, its own scrollbar), which comes later in this file:
+   with it, a long conversation shrank into a 32px box of its own. */
+.assistant__body > * { flex: none; }
+.assistant .chat__log--flow { overflow: visible; padding: 0; }
 .assistant__side, .assistant__side > div { display: flex; flex-direction: column; gap: var(--space-sm); }
 .assistant .suggest { padding-top: var(--space-xs); border-top: 1px solid var(--color-rule); }
 .assistant .suggest button { max-width: 100%; }
