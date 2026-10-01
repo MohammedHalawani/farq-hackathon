@@ -704,11 +704,32 @@ function messageNode(m) {
   wrap.appendChild(el("div", "msg__who", m.role === "admin"
     ? (state.lang === "ar" ? "أنت" : "Admin")
     : (state.lang === "ar" ? "المساعد" : "Assistant")));
-  const body = el("div", "msg__body", m.text);
+  const text = m.text_ar && state.lang === "ar" ? m.text_ar : (m.text_en || m.text);
+  const body = el("div", "msg__body", text);
   body.dir = "auto";
   wrap.appendChild(body);
   if (m.choices?.length && !m.choicesUsed) wrap.appendChild(choiceButtons(m));
   return wrap;
+}
+
+/** A line the server already put in the session chat (status after apply or
+ *  undo): shown as is, never re-written here. */
+function addServerLine(line) {
+  if (!line) return null;
+  const m = { ...line, id: nextMessageId++ };
+  state.chat.push(m);
+  renderMessage(m);
+  return m;
+}
+
+/** Scroll each view so this message is at the top of what is visible. */
+function scrollToMessage(m) {
+  for (const v of CHAT_VIEWS) {
+    const node = v.nodes.get(m.id);
+    if (!node) continue;
+    const top = node.getBoundingClientRect().top - v.scroller.getBoundingClientRect().top;
+    v.scroller.scrollTop += top - 8;
+  }
 }
 
 /** Draw (or redraw) one message in every view. */
@@ -937,7 +958,8 @@ function renderSideInto(host, compact) {
   if (c.kind === "what_if" && c.feasible === false) {
     const n = el("div", "notice notice--bad",
       (state.lang === "ar" ? "لا يوجد جدول ممكن. " : "No feasible schedule. ") +
-      t("conflicts_with") + ": " + (c.blocking || []).join("; "));
+      t("conflicts_with") + ": " +
+      ((state.lang === "ar" && c.blocking_ar) || c.blocking || []).join(state.lang === "ar" ? "؛ " : "; "));
     card.appendChild(n);
   } else if (c.kind === "what_if") {
     const sub = el("div", "card__head");
@@ -1049,30 +1071,26 @@ async function applyPending(btn) {
     });
     state.trace = (state.trace || []).concat(out.trace || []);
     renderTrace(out.trace || [], { animate: true });
+    // the status line was written into the session chat by the server: show
+    // that line, so a reload brings back exactly what is on screen now
+    const line = addServerLine(out.chat);
     if (!out.ok) {
-      addMessage("agent", (state.lang === "ar" ? "تعذّر التطبيق: " : "Could not apply: ") +
-        out.message + " — " + t("conflicts_with") + ": " +
-        (out.blocking || []).map((b) => b.type).join(", "));
       state.pending = null;
     } else if (out.stage === "setup") {
       // nothing to re-solve yet: the rule waits for the build
       state.pending = null;
       state.meta.data.setup_rules = out.rules || [];
-      addMessage("agent", state.lang === "ar"
-        ? "حُفظت كقاعدة إعداد، وستُطبَّق عند بناء الجدول (تبويب البيانات، الخطوة ٣)."
-        : "Saved as a setup rule. It is applied when you build the timetable (Data tab, step 3).");
       renderData();
     } else {
       state.lastApplied = out.version;
       state.moves = out.version.moves || [];
       state.pending = null;
-      addMessage("agent", (state.lang === "ar"
-        ? `تم التطبيق. نُقلت ${out.version.moved_count} محاضرة.`
-        : `Applied. ${out.version.moved_count} meetings moved.`));
       await refreshAfterChange(out.version.moved);
     }
     renderSide();
-    scrollChat();
+    // after a change, the "applied" line at the top with what moved below it
+    if (out.ok && out.stage !== "setup" && line) scrollToMessage(line);
+    else scrollChat();
   } catch (e) {
     addMessage("agent", e.message);
   } finally {
@@ -1086,13 +1104,13 @@ async function doUndo(btn) {
   if (btn) btn.disabled = true;
   try {
     const out = await api("/api/changes/undo", { method: "POST" });
-    if (!out.ok) { addMessage("agent", out.message); return; }
+    const line = addServerLine(out.chat);
+    if (!out.ok) return;
     state.lastApplied = out.version.index > 0 ? out.version : null;
     state.moves = out.version.moves || [];
-    addMessage("agent", state.lang === "ar" ? "تم التراجع." : "Change undone.");
     await refreshAfterChange(out.version.moved);
     renderSide();
-    scrollChat();
+    if (line) scrollToMessage(line);
   } finally {
     state.busy = false;
     if (btn) btn.disabled = false;
@@ -1430,7 +1448,7 @@ $("#export").addEventListener("click", () => { window.location.href = "/api/data
   // the conversation so far lives on the server: show it in every chat view
   try {
     const agent = await api("/api/agent/state");
-    state.chat = (agent.chat || []).map((m) => ({ id: nextMessageId++, role: m.role, text: m.text }));
+    state.chat = (agent.chat || []).map((m) => ({ ...m, id: nextMessageId++ }));
     state.pending = agent.card || null;
   } catch { /* an empty chat is a fine start */ }
   // the timetable opens on Noura, who the baseline fails

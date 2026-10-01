@@ -6,7 +6,7 @@ import re
 
 from dotenv import load_dotenv
 
-from agent.describe import describe, short_label
+from agent.describe import describe, short_label, short_label_ar
 from agent.resolver import is_vague, one_course, resolve
 from agent.schemas import CONSTRAINT_TOOL_SCHEMA, parse_constraint, to_day
 from core.explain import explain_gap, explain_meeting, summarize_gap, summarize_meeting
@@ -351,6 +351,7 @@ class Tools:
                 "label": short_label(self.s.u, c),
                 "feasible": False,
                 "blocking": [short_label(self.s.u, b) for b in blocking],
+                "blocking_ar": [short_label_ar(self.s.u, b) for b in blocking],
             }
             return {
                 "feasible": False,

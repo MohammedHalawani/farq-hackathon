@@ -123,3 +123,9 @@ def describe(u: University, c: dict) -> dict:
 def short_label(u: University, c: dict) -> str:
     d = describe(u, c)
     return d["title_en"] + " — " + " · ".join(r["value"] for r in d["rows"])
+
+
+def short_label_ar(u: University, c: dict) -> str:
+    """short_label in Arabic: the same rows, their Arabic values where they differ."""
+    d = describe(u, c)
+    return d["title_ar"] + " — " + " · ".join(r.get("value_ar") or r["value"] for r in d["rows"])

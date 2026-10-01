@@ -7,7 +7,7 @@ by the model.
 
 from __future__ import annotations
 
-from agent.describe import short_label
+from agent.describe import describe, short_label, short_label_ar
 from core.models import University
 
 
@@ -59,19 +59,21 @@ def for_message(u: University, message: str, tools, card: dict | None) -> list[d
     if card is None:
         return out
 
-    label = short_label(u, card["constraint"])
-    out.append(step("rule built", "بناء القاعدة", "ok", label, label))
+    c = card["constraint"]
+    out.append(step("rule built", "بناء القاعدة", "ok",
+                    short_label(u, c), short_label_ar(u, c)))
+    title = describe(u, c)
     out.append(step(
         "schema validation", "التحقق من الصيغة", "ok",
-        f"{card['constraint']['type']} accepted by the strict schema",
-        f"{card['constraint']['type']} مقبول وفق الصيغة الصارمة",
+        f"«{title['title_en']}» accepted by the strict schema",
+        f"«{title['title_ar']}» مقبولة وفق الصيغة الصارمة",
     ))
 
     if card["kind"] == "what_if" and card.get("feasible") is False:
         out.append(step(
             "re-solving", "إعادة الحل", "fail",
             "no schedule satisfies this — " + "; ".join(card.get("blocking", [])),
-            "لا يوجد جدول يحقق هذا — " + "; ".join(card.get("blocking", [])),
+            "لا يوجد جدول يحقق هذا — " + "؛ ".join(card.get("blocking_ar") or card.get("blocking", [])),
         ))
         return out
 
@@ -89,21 +91,22 @@ def for_message(u: University, message: str, tools, card: dict | None) -> list[d
 
 def for_apply(u: University, constraint: dict, result: dict, total: int) -> list[dict]:
     """Steps 6-7: what the confirmed change actually did."""
-    label = short_label(u, constraint)
+    label, label_ar = short_label(u, constraint), short_label_ar(u, constraint)
     if not result["ok"]:
         blocking = "; ".join(short_label(u, b) for b in result.get("blocking", []))
+        blocking_ar = "؛ ".join(short_label_ar(u, b) for b in result.get("blocking", []))
         return [
             step("re-solving", "إعادة الحل", "fail",
                  result.get("message", "no feasible schedule"),
-                 result.get("message", "لا يوجد جدول ممكن")),
+                 "لا يوجد جدول يحقق هذه القاعدة مع القواعد المؤكدة"),
             step("rules check", "فحص القواعد", "fail",
-                 f"conflicts with: {blocking}", f"يتعارض مع: {blocking}"),
+                 f"conflicts with: {blocking}", f"يتعارض مع: {blocking_ar}"),
         ]
 
     if result.get("stage") == "setup":
         n = len(result.get("rules", []))
         return [
-            step("rule saved for the build", "حُفظت القاعدة للبناء", "ok", label, label),
+            step("rule saved for the build", "حُفظت القاعدة للبناء", "ok", label, label_ar),
             step("feasibility check", "فحص الإمكانية", "ok",
                  f"a timetable still exists with all {n} setup rules",
                  f"يوجد جدول ممكن مع قواعد الإعداد كلها ({n})"),
@@ -113,7 +116,7 @@ def for_apply(u: University, constraint: dict, result: dict, total: int) -> list
     moved = v["moved_count"]
     m = v["metrics"]
     return [
-        step("rule applied", "طُبِّقت القاعدة", "ok", label, label),
+        step("rule applied", "طُبِّقت القاعدة", "ok", label, label_ar),
         step("re-solving (minimal change)", "إعادة الحل بأقل تغيير", "ok",
              f"{total - moved} meetings kept, {moved} moved",
              f"{total - moved} محاضرة ثابتة، {moved} نُقلت"),

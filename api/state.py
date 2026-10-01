@@ -231,6 +231,27 @@ class Session:
         self.versions.append(v)
         return v
 
+    def say(self, en: str, ar: str) -> dict:
+        """A status line in the session chat, in both languages, so a reload
+        shows it again. The page picks the language it is showing."""
+        line = {"role": "agent", "status": True, "text": en, "text_en": en, "text_ar": ar}
+        self.chat.append(line)
+        return line
+
+    def _labels(self, rules: list[dict]) -> tuple[str, str]:
+        from agent.describe import short_label, short_label_ar
+
+        return ("; ".join(short_label(self.u, c) for c in rules),
+                "؛ ".join(short_label_ar(self.u, c) for c in rules))
+
+    def _could_not_apply(self, result: dict) -> dict:
+        en, ar = self._labels(result["blocking"])
+        result["chat"] = self.say(
+            f"Could not apply: {result['message']} — conflicts with: {en}",
+            f"تعذّر التطبيق: لا يوجد جدول يحقق هذه القاعدة مع القواعد المؤكدة — يتعارض مع: {ar}",
+        )
+        return result
+
     def apply_constraint(self, constraint: dict, label: str) -> dict:
         """Minimal-change re-solve. Reports the blocking constraints on failure.
         Before the first build there is nothing to re-solve: the rule is kept as
@@ -239,15 +260,20 @@ class Session:
         if self.current is None:
             r = solve(self.u, self.active_profile, constraints=proposed, rounds=0)
             if r.assignment is None:
-                return {
+                return self._could_not_apply({
                     "ok": False,
                     "stage": "setup",
                     "message": r.message or "No schedule satisfies these rules.",
                     "blocking": self._blocking(constraint),
-                }
+                })
             self.constraints = proposed
             self.profiles = {}
-            return {"ok": True, "stage": "setup", "rules": self.setup_rules()}
+            line = self.say(
+                "Saved as a setup rule. It is applied when you build the timetable "
+                "(Data tab, step 3).",
+                "حُفظت كقاعدة إعداد، وستُطبَّق عند بناء الجدول (تبويب البيانات، الخطوة ٣).",
+            )
+            return {"ok": True, "stage": "setup", "rules": self.setup_rules(), "chat": line}
         r = solve(
             self.u,
             self.active_profile,
@@ -257,14 +283,16 @@ class Session:
             rounds=CHANGE_ROUNDS,
         )
         if r.assignment is None:
-            return {
+            return self._could_not_apply({
                 "ok": False,
                 "message": r.message or "No schedule satisfies these constraints.",
                 "blocking": self._blocking(constraint),
-            }
+            })
         self.constraints = proposed
         v = self._push(label, constraint, r.assignment)
-        return {"ok": True, "version": self.version_payload(v)}
+        n = len(v.moved)
+        line = self.say(f"Applied. {n} meetings moved.", f"تم التطبيق. نُقلت {n} محاضرة.")
+        return {"ok": True, "version": self.version_payload(v), "chat": line}
 
     def _blocking(self, new_constraint: dict) -> list[dict]:
         """Drop the user's constraints one at a time to find who conflicts."""
@@ -296,7 +324,8 @@ class Session:
 
     def undo(self) -> dict:
         if len(self.versions) <= 1:
-            return {"ok": False, "message": "Nothing to undo."}
+            line = self.say("Nothing to undo.", "لا يوجد ما يُتراجع عنه.")
+            return {"ok": False, "message": "Nothing to undo.", "chat": line}
         dropped = self.versions.pop()
         if dropped.constraint in self.constraints:
             self.constraints.remove(dropped.constraint)
@@ -306,7 +335,8 @@ class Session:
         payload["moved"] = moved_meetings(dropped.assignment, restored.assignment)
         payload["moved_count"] = len(payload["moved"])
         payload["moves"] = self.move_list(dropped.assignment, restored.assignment)
-        return {"ok": True, "version": payload}
+        line = self.say("Change undone.", "تم التراجع.")
+        return {"ok": True, "version": payload, "chat": line}
 
     def move_list(self, before: Assignment | None, after: Assignment) -> list[dict]:
         """Each move in words: where it was, where it went."""
