@@ -244,6 +244,13 @@ class CampusBreak(BaseModel, extra="forbid"):
     _s = field_validator("slots")(_check_slots)
 
 
+class AvoidSingleClassDays(BaseModel, extra="forbid"):
+    """A preference, not a ban: the optimiser reduces the days on which a
+    student comes in for only one class, as far as it can."""
+    type: Literal["avoid_single_class_days"]
+    cohort: str | None = None          # e.g. "CS-L3"; None = every student
+
+
 class CourseNeedsLab(BaseModel, extra="forbid"):
     type: Literal["course_needs_lab"]
     course_id: str
@@ -257,6 +264,7 @@ CONSTRAINTS = {
     "section_require_accessible": SectionRequireAccessible,
     "campus_break": CampusBreak,
     "course_needs_lab": CourseNeedsLab,
+    "avoid_single_class_days": AvoidSingleClassDays,
 }
 
 
@@ -283,6 +291,13 @@ CONSTRAINT_TOOL_SCHEMA = {
         "section_id": {"type": "string", "description": "e.g. S12 (from get_entity)"},
         "room_id": {"type": "string", "description": "e.g. B12 (from get_entity)"},
         "course_id": {"type": "string", "description": "e.g. C04 (from get_entity)"},
+        "cohort": {
+            "type": "string",
+            "description": (
+                "avoid_single_class_days only: a cohort id from get_entity, e.g. "
+                "CS-L3. Omit it to mean every student."
+            ),
+        },
         "days": {
             "type": "array",
             "items": {"type": "string"},

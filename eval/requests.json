@@ -60,5 +60,14 @@
 {"id":59,"lang":"ar","category":"what_if","text":"وش يصير لو صار عندنا استراحة للكل من ١٢ إلى ١؟","expect":{"kind":"tool","tool":"what_if","constraint":{"type":"campus_break","slots":[4]}}},
 {"id":60,"lang":"ar","category":"setup_then_build","text":"لا محاضرات من ١٢ إلى ١ ← بناء ← سؤال","steps":[{"text":"لا محاضرات من ١٢ إلى ١","expect":{"kind":"constraint","constraint":{"type":"campus_break","slots":[4]}},"then":"apply"},{"text":"كم نسبة الطلاب بدون تعارض الحين؟","expect":{"kind":"no_timetable"}},{"then":"build","expect":{"kind":"no_class_in","slots":[4]}},{"text":"ليش عند CS-L3 فراغ يوم الأربعاء؟","expect":{"kind":"tool","tool":"explain_gap","args":{"entity_id":"CS-L3","day":3}}}]},
 {"id":61,"lang":"ar","category":"demo","text":"د. أحمد ما يقدر الثلاثاء بعد ٢ ← د. أحمد العلي","steps":[{"text":"د. أحمد ما يقدر الثلاثاء بعد ٢","expect":{"kind":"ask_clarification","choices":["د. أحمد العلي","د. أحمد الغامدي"]}},{"text":"د. أحمد العلي","expect":{"kind":"constraint","constraint":{"type":"instructor_unavailable","instructor_id":"I01","days":[2],"slots":[6,7]}}}]},
-{"id":62,"lang":"ar","category":"demo","text":"لا محاضرات من ١٢ إلى ١","expect":{"kind":"constraint","constraint":{"type":"campus_break","slots":[4]}}}
+{"id":62,"lang":"ar","category":"demo","text":"لا محاضرات من ١٢ إلى ١","expect":{"kind":"constraint","constraint":{"type":"campus_break","slots":[4]}}},
+{"id":63,"lang":"en","category":"single_class_day","text":"avoid scheduling a single-class day for any cohort","expect":{"kind":"constraint","constraint":{"type":"avoid_single_class_days"}}},
+{"id":64,"lang":"en","category":"single_class_day","text":"dont make it so students come for one class a day","expect":{"kind":"constraint","constraint":{"type":"avoid_single_class_days"}}},
+{"id":65,"lang":"ar","category":"single_class_day","text":"لا تخلّون الطالب يجي ليوم فيه محاضرة وحدة","expect":{"kind":"constraint","constraint":{"type":"avoid_single_class_days"}}},
+{"id":66,"lang":"ar","category":"single_class_day","text":"ما نبي الطلاب يداومون يوم كامل عشان محاضرة وحدة","expect":{"kind":"constraint","constraint":{"type":"avoid_single_class_days"}}},
+{"id":67,"lang":"ar","category":"single_class_day","text":"قلّلوا الأيام اللي فيها محاضرة وحدة لطلاب حاسب المستوى الثالث","expect":{"kind":"constraint","constraint":{"type":"avoid_single_class_days","cohort":"CS-L3"}}},
+{"id":68,"lang":"en","category":"single_class_day","text":"Try to avoid one-class days for CE-L2","expect":{"kind":"constraint","constraint":{"type":"avoid_single_class_days","cohort":"CE-L2"}}},
+{"id":69,"lang":"ar","category":"single_class_day","text":"وش يصير لو قللنا الأيام اللي فيها محاضرة وحدة؟","expect":{"kind":"tool","tool":"what_if","constraint":{"type":"avoid_single_class_days"}}},
+{"id":70,"lang":"ar","category":"single_class_day","text":"ليش دفعة CS-L3 عندها محاضرة وحدة بس يوم الخميس؟","expect":{"kind":"tool","tool":"explain_gap","args":{"entity_id":"CS-L3","day":4}}},
+{"id":71,"lang":"ar","category":"single_class_day","text":"يا ليت ما يكون فيه يوم للطالب فيه مادة وحدة بس","expect":{"kind":"constraint","constraint":{"type":"avoid_single_class_days"}}}
 ]

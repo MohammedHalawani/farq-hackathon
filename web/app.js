@@ -180,6 +180,14 @@ const FMT = {
 };
 const fmt = (k, v) => (FMT[k] ? FMT[k](v) : String(v));
 
+/** The single-class-day figure appears only while avoid_single_class_days is
+ *  on (as a setup rule or a confirmed change); the default view is unchanged. */
+const singleRuleOn = () =>
+  !!state.comparison?.single_class_rule ||
+  (state.meta?.data?.setup_rules || []).some((r) => r.constraint.type === "avoid_single_class_days") ||
+  (changeData?.constraints || []).some((c) => c.type === "avoid_single_class_days");
+const showMetric = (key) => key !== "pct_students_with_single_class_day" || singleRuleOn();
+
 const ROWS = [
   ["pct_students_conflict_free", "% students conflict-free", "نسبة الطلاب بلا تعارض", "higher"],
   ["pct_repeaters_conflict_free", "% repeaters conflict-free", "نسبة المعيدين بلا تعارض", "higher"],
@@ -190,6 +198,7 @@ const ROWS = [
   ["avg_idle_minutes_per_student_per_day", "Avg idle minutes / student / day", "متوسط دقائق الفراغ لكل طالب يوميًا", "lower"],
   ["pct_students_with_2h_gap", "% students with a 2h+ gap", "نسبة الطلاب بفراغ ساعتين فأكثر", "lower"],
   ["pct_students_with_any_gap", "% students with any gap", "نسبة الطلاب بأي فراغ", "lower"],
+  ["pct_students_with_single_class_day", "% students with a single-class day", "نسبة الطلاب بيوم فيه محاضرة واحدة", "lower"],
   ["worst_gap_hours", "Worst single gap (hours)", "أطول فراغ متصل (ساعات)", "lower"],
   ["avg_walk_minutes", "Avg walking minutes", "متوسط دقائق المشي", "lower"],
   ["avg_room_fill_rate", "Avg room fill rate", "متوسط إشغال القاعات", "higher"],
@@ -277,6 +286,7 @@ function renderComparison() {
   const tb = el("tbody");
   const rows = [];
   for (const [key, en, ar, dir] of ROWS) {
+    if (!showMetric(key)) continue;
     const tr = el("tr");
     rows.push(tr);
     tr.appendChild(el("td", "metric-name", state.lang === "ar" ? ar : en));
@@ -844,7 +854,7 @@ function deltaRows(deltas) {
   let any = false;
   for (const key of Object.keys(deltas)) {
     const d = deltas[key];
-    if (d.delta === 0) continue;
+    if (d.delta === 0 || !showMetric(key)) continue;
     any = true;
     const improved = d.better === "higher" ? d.delta > 0 : d.delta < 0;
     const tr = el("tr");
@@ -1171,7 +1181,7 @@ function effectCell(v) {
     td.appendChild(el("span", "chip", state.lang === "ar" ? "نقطة البداية" : "starting point"));
     return td;
   }
-  const changed = Object.entries(v.deltas || {}).filter(([, x]) => x.delta !== 0);
+  const changed = Object.entries(v.deltas || {}).filter(([k, x]) => x.delta !== 0 && showMetric(k));
   if (!changed.length) {
     td.appendChild(el("span", "chip chip--ok", state.lang === "ar" ? "لا تغيّر" : "no metric moved"));
     return td;

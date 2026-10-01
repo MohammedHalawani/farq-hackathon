@@ -26,6 +26,8 @@ PROFILES = {
         "walk": 15,
         "waste": 1,
         "peak": 5,
+        "single_day": 20,
+        "long_gap": 500,   # only under avoid_single_class_days: half a clash
     },
     "room_efficient": {
         "conflict": 1000,
@@ -34,6 +36,8 @@ PROFILES = {
         "walk": 3,
         "waste": 10,
         "peak": 5,
+        "single_day": 20,
+        "long_gap": 500,   # only under avoid_single_class_days: half a clash
     },
     "balanced": {
         "conflict": 1000,
@@ -42,6 +46,11 @@ PROFILES = {
         "walk": 8,
         "waste": 4,
         "peak": 8,
+        # only used under avoid_single_class_days, with long_gap guarding
+        # against 2h+ idle runs; chosen by a sweep (5, 10, 20, 40): 20 cuts the
+        # most single-class days with no 2h+ gap left, with or without a break
+        "single_day": 20,
+        "long_gap": 500,   # only under avoid_single_class_days: half a clash
     },
 }
 
@@ -88,6 +97,18 @@ def student_groups(u: University) -> list[_Group]:
         g.repeater = g.repeater or st.is_repeater
         g.needs_accessibility = g.needs_accessibility or st.needs_accessibility
     return [buckets[k] for k in sorted(buckets, key=lambda s: sorted(s))]
+
+
+def single_day_scope(u: University, constraints: list[dict]) -> set[str] | None:
+    """Students covered by avoid_single_class_days, or None when the rule is
+    absent (and the model must not change at all)."""
+    rules = [c for c in constraints if c["type"] == "avoid_single_class_days"]
+    if not rules:
+        return None
+    if any(not c.get("cohort") for c in rules):
+        return {st.id for st in u.students}
+    cohorts = {c["cohort"] for c in rules}
+    return {st.id for st in u.students if f"{st.department}-L{st.level}" in cohorts}
 
 
 def _allowed_slots(u: University, constraints: list[dict]) -> dict[str, set[int]]:
@@ -226,6 +247,14 @@ def _build_model(
             model.Add(day_var[ms[0].id] < day_var[ms[1].id])
 
     groups = student_groups(u)
+    # avoid_single_class_days: how many students of each group it covers
+    scope = single_day_scope(u, constraints)
+    single_size: dict[frozenset[str], int] = {}
+    if scope is not None:
+        for st in u.students:
+            if st.id in scope:
+                key = frozenset(st.section_ids)
+                single_size[key] = single_size.get(key, 0) + 1
     break_periods: dict[int, list[int]] = {}
     for s_ in sorted(break_slots(constraints)):
         break_periods.setdefault(slot_day(s_), []).append(slot_period(s_))
@@ -338,6 +367,21 @@ def _build_model(
                 model.Add(idle >= last - first + 1 - count)
             penalties.append((w["idle"] * g.size, idle))
 
+            # --- soft, only under avoid_single_class_days: a day with one class
+            n_single = single_size.get(g.section_ids, 0)
+            if n_single:
+                single = model.NewBoolVar(f"single_{id(g)}_{d}")
+                model.Add(count == 1).OnlyEnforceIf(single)
+                model.Add(count != 1).OnlyEnforceIf(single.Not())
+                penalties.append((w["single_day"] * n_single, single))
+
+            # --- under avoid_single_class_days only: no 2h+ idle run, so
+            # fewer one-class days are never bought with long gaps
+            if scope is not None:
+                run = _long_run(model, y, mids, d, break_periods.get(d, ()), f"{id(g)}_{d}")
+                if run is not None:
+                    penalties.append((w["long_gap"] * g.size, run))
+
     # --- soft: room waste
     waste_terms = []
     for m in u.meetings:
@@ -379,6 +423,50 @@ def _build_model(
     model.Minimize(total)
 
     return _Model(model, y, z, total, max_daily)
+
+
+def _long_run(model, y, mids, day, breaks, tag):
+    """A bool forced true when this group sits through two or more idle
+    teaching hours in a row on `day` (break hours are not teaching hours and
+    are skipped, as in the metrics). None when the day cannot have one."""
+    hours = [p for p in range(N_PERIODS) if p not in breaks]
+    occ = {}
+    for p in hours:
+        here = [y[m][slot_id(day, p)] for m in mids if slot_id(day, p) in y[m]]
+        if here:
+            o = model.NewBoolVar(f"occ_{tag}_{p}")
+            model.AddMaxEquality(o, here)
+            occ[p] = o
+    if len(occ) < 2:
+        return None
+    # before[i]: a class in some hour before hours[i]; after[i]: one after it
+    def running(order):
+        out, seen = {}, None
+        for i in order:
+            out[i] = seen
+            p = hours[i]
+            if p in occ:
+                if seen is None:
+                    seen = occ[p]
+                else:
+                    v = model.NewBoolVar(f"any_{tag}_{p}_{order[0]}")
+                    model.AddMaxEquality(v, [seen, occ[p]])
+                    seen = v
+        return out
+    before = running(list(range(len(hours))))
+    after = running(list(range(len(hours) - 1, -1, -1)))
+    run = model.NewBoolVar(f"run_{tag}")
+    hit = False
+    for i in range(len(hours) - 1):
+        q1, q2 = hours[i], hours[i + 1]
+        if before[i] is None or after[i + 1] is None:
+            continue
+        # a class before q1, none at q1 or q2, a class after q2 -> a long run
+        clause = [before[i].Not(), after[i + 1].Not(), run]
+        clause += [occ[q] for q in (q1, q2) if q in occ]
+        model.AddBoolOr(clause)
+        hit = True
+    return run if hit else None
 
 
 @dataclass
@@ -508,10 +596,12 @@ def solve(
         # repair the schedule we have before considering a rebuild
         starts.append(
             greedy_start(u, allowed_slots, allowed_rooms, built.max_daily, w, keep=base,
-                         breaks=break_slots(constraints))
+                         breaks=break_slots(constraints),
+                         single_scope=single_day_scope(u, constraints))
         )
     starts.append(greedy_start(u, allowed_slots, allowed_rooms, built.max_daily, w,
-                               breaks=break_slots(constraints)))
+                               breaks=break_slots(constraints),
+                               single_scope=single_day_scope(u, constraints)))
     cur: Assignment | None = None
     cur_obj: int | None = None
     for cand in starts:

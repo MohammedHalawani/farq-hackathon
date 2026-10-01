@@ -239,6 +239,8 @@ def explain_gap(
     if not students:
         return {"error": f"'{entity_id}' is not a student or a cohort."}
     meetings = _entity_meetings(u, a, entity_id, day)
+    if len({m["period"] for m in meetings}) == 1:
+        return _explain_single_day(u, a, constraints, entity_id, day, meetings)
     if len(meetings) < 2:
         return {
             "entity_id": entity_id,
@@ -358,6 +360,80 @@ def explain_gap(
     }
 
 
+def _explain_single_day(
+    u: University, a: Assignment, constraints: list[dict], entity_id: str, day: int,
+    meetings: list[dict],
+) -> dict:
+    """Why this day has only one class: try moving it next to the classes of
+    every other day the entity comes in, and say what stops each move."""
+    breaks = break_slots(constraints)
+    lone = meetings[0]
+    sec = u.section_by_id[u.meeting_by_id[lone["meeting_id"]].section_id]
+    course = u.course_by_id[sec.course_id]
+    findings = []
+    for d2 in range(N_DAYS):
+        if d2 == day:
+            continue
+        there = sorted({m["period"] for m in _entity_meetings(u, a, entity_id, d2)})
+        if not there:
+            continue        # moving it to an empty day just moves the problem
+        # hours right next to that day's classes: no new gap
+        options = sorted({
+            p for q in there for p in (q - 1, q + 1)
+            if 0 <= p < N_PERIODS and p not in there and slot_id(d2, p) not in breaks
+        })
+        best = None
+        for p in options:
+            slot = slot_id(d2, p)
+            why = blocker_reasons(u, a, constraints, lone["meeting_id"], slot)
+            entry = {
+                "meeting_id": lone["meeting_id"], "section_id": sec.id,
+                "course": course.name, "course_ar": course.name_ar,
+                "from_hour": hour(lone["period"]), "to_hour": hour(p),
+                "to_day": DAYS[d2], "to_day_ar": DAYS_AR[d2],
+                "blocked_by": [r["en"] for r in why],
+                "blocked_by_ar": [r["ar"] for r in why],
+            }
+            if not why:
+                rooms, _ = _room_options(u, a, constraints, lone["meeting_id"], slot)
+                cost = min((_cost_of_move(u, a, lone["meeting_id"], slot, r, breaks) for r in rooms),
+                           key=lambda c: (c["new_accessibility_transit_breaches"],
+                                          c["new_student_clashes"]))
+                n = cost["new_student_clashes"]
+                if n:
+                    entry["verdict"] = f"nothing forbids it, but it would clash with {n} students' other classes"
+                    entry["verdict_ar"] = f"لا شيء يمنعه، لكنه يسبب تعارضًا لـ {n} طالبًا"
+                else:
+                    entry["verdict"] = "possible: nothing forbids it and no student would clash"
+                    entry["verdict_ar"] = "ممكن: لا شيء يمنعه ولا يتعارض أي طالب"
+                best = entry
+                if not n:
+                    break
+            elif best is None:
+                best = entry
+        if best is not None:
+            findings.append(best)
+    return {
+        "entity_id": entity_id,
+        "day": DAYS[day],
+        "day_ar": DAYS_AR[day],
+        "gap_hours": [],
+        "note": "There is no gap: only one class that day.",
+        "counts_as": (
+            "one student's own timetable"
+            if entity_id in u.student_by_id
+            else "every class this cohort takes, pooled; an individual student "
+            "may have a different day"
+        ),
+        "single_class": {
+            "meeting_id": lone["meeting_id"], "section_id": sec.id,
+            "course": course.name, "course_ar": course.name_ar,
+            "hour": hour(lone["period"]),
+        },
+        "moves_considered": findings,
+    }
+
+
 def explain_meeting(
     u: University, a: Assignment, constraints: list[dict], meeting_id: str
 ) -> dict:
@@ -464,11 +540,40 @@ def _hours_word(n: int, ar: bool) -> str:
     return {1: "ساعة واحدة", 2: "ساعتان"}.get(n, f"{n} ساعات")
 
 
+def _summarize_single(out: dict, ar: bool) -> str:
+    who, day, one = out["entity_id"], out["day_ar"] if ar else out["day"], out["single_class"]
+    course = one["course_ar"] if ar else one["course"]
+    lines = [
+        f"يوم {day} لـ {who} فيه محاضرة واحدة فقط: {course} الساعة {one['hour']}."
+        if ar else
+        f"{who} has only one class on {day}: {course} at {one['hour']}."
+    ]
+    if "pooled" in out.get("counts_as", ""):
+        lines.append("هذه محاضرات الدفعة كلها معًا؛ قد يختلف يوم الطالب الواحد."
+                     if ar else
+                     "This pools every class the cohort takes; one student's day may differ.")
+    if not out["moves_considered"]:
+        lines.append("لا يوجد يوم آخر فيه محاضرات يمكن نقلها إليه."
+                     if ar else "There is no other day with classes to move it to.")
+    for m in out["moves_considered"]:
+        to_day = m["to_day_ar"] if ar else m["to_day"]
+        why = ((m["blocked_by_ar"] if ar else m["blocked_by"]) or [None])[0] \
+            or (m["verdict_ar"] if ar else m["verdict"])
+        lines.append(
+            f"• نقلها إلى {to_day} الساعة {m['to_hour']}: {why}."
+            if ar else
+            f"• Moving it to {to_day} {m['to_hour']}: {why}."
+        )
+    return "\n".join(lines)
+
+
 def summarize_gap(out: dict, lang: str = "en") -> str | None:
     """explain_gap's result as the lines the chat shows word for word."""
     if "error" in out:
         return None
     ar = lang == "ar"
+    if out.get("single_class"):
+        return _summarize_single(out, ar)
     who, day = out["entity_id"], out["day_ar"] if ar else out["day"]
     breaks = out.get("campus_break_hours", [])
     break_line = (
