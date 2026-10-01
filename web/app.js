@@ -1285,8 +1285,9 @@ function renderData() {
   $("#open-timetable").hidden = !built;
   setPlaceholders();
   renderSuggest();
-  if (built && state.buildSeconds == null && d.build_seconds != null) {
-    showBuildTime(d.build_seconds);
+  // redrawn on every render so the unit follows the language
+  if (built && (state.buildSeconds ?? d.build_seconds) != null) {
+    showBuildTime(state.buildSeconds ?? d.build_seconds);
   }
 }
 

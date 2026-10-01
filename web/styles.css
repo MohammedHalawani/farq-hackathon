@@ -969,7 +969,9 @@ td.num, th.num { text-align: end; font-family: var(--font-mono); font-variant-nu
 .assistant {
   position: sticky;
   top: calc(var(--bar-h) + var(--space-md));
-  height: calc(100vh - var(--bar-h) - 2 * var(--space-md));
+  /* the header above, the page's bottom padding below: the whole panel,
+     send box included, stays on screen from the top of the page to the end */
+  height: calc(100vh - var(--bar-h) - var(--space-md) - var(--space-3xl));
   min-height: 420px;
   display: flex;
   flex-direction: column;
